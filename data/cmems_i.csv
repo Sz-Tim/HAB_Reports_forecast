@@ -1,0 +1,15 @@
+var,source,server,doi,ID,ID_toolbox
+chl,Reanalysis,my.cmems-du.eu,https://doi.org/10.48670/moi-00058,cmems_mod_nws_bgc-chl_my_7km-3D_P1D-m,cmems_mod_nws_bgc-chl_my_7km-3D_P1D-m
+chl,Analysis&Forecast,nrt.cmems-du.eu,https://doi.org/10.48670/moi-00056,cmems_mod_nws_bgc-chl_anfc_7km-3D_P1D-m,cmems_mod_nws_bgc_anfc_0.027deg-3D_P1D-m
+no3,Reanalysis,my.cmems-du.eu,https://doi.org/10.48670/moi-00058,cmems_mod_nws_bgc-no3_my_7km-3D_P1D-m,cmems_mod_nws_bgc-no3_my_7km-3D_P1D-m
+no3,Analysis&Forecast,nrt.cmems-du.eu,https://doi.org/10.48670/moi-00056,cmems_mod_nws_bgc-no3_anfc_7km-3D_P1D-m,cmems_mod_nws_bgc_anfc_0.027deg-3D_P1D-m
+o2,Reanalysis,my.cmems-du.eu,https://doi.org/10.48670/moi-00058,cmems_mod_nws_bgc-o2_my_7km-3D_P1D-m,cmems_mod_nws_bgc-o2_my_7km-3D_P1D-m
+o2,Analysis&Forecast,nrt.cmems-du.eu,https://doi.org/10.48670/moi-00056,cmems_mod_nws_bgc-o2_anfc_7km-3D_P1D-m,cmems_mod_nws_bgc_anfc_0.027deg-3D_P1D-m
+ph,Reanalysis,my.cmems-du.eu,https://doi.org/10.48670/moi-00058,cmems_mod_nws_bgc-ph_my_7km-3D_P1D-m,cmems_mod_nws_bgc-ph_my_7km-3D_P1D-m
+ph,Analysis&Forecast,nrt.cmems-du.eu,https://doi.org/10.48670/moi-00056,cmems_mod_nws_bgc-ph_anfc_7km-3D_P1D-m,cmems_mod_nws_bgc_anfc_0.027deg-3D_P1D-m
+phyc,Reanalysis,my.cmems-du.eu,https://doi.org/10.48670/moi-00058,cmems_mod_nws_bgc-phyc_my_7km-3D_P1D-m,cmems_mod_nws_bgc-phyc_my_7km-3D_P1D-m
+phyc,Analysis&Forecast,nrt.cmems-du.eu,https://doi.org/10.48670/moi-00056,cmems_mod_nws_bgc-phyc_anfc_7km-3D_P1D-m,cmems_mod_nws_bgc_anfc_0.027deg-3D_P1D-m
+po4,Reanalysis,my.cmems-du.eu,https://doi.org/10.48670/moi-00058,cmems_mod_nws_bgc-po4_my_7km-3D_P1D-m,cmems_mod_nws_bgc-po4_my_7km-3D_P1D-m
+po4,Analysis&Forecast,nrt.cmems-du.eu,https://doi.org/10.48670/moi-00056,cmems_mod_nws_bgc-po4_anfc_7km-3D_P1D-m,cmems_mod_nws_bgc_anfc_0.027deg-3D_P1D-m
+pp,Reanalysis,my.cmems-du.eu,https://doi.org/10.48670/moi-00058,cmems_mod_nws_bgc-pp_my_7km-3D_P1D-m,cmems_mod_nws_bgc-pp_my_7km-3D_P1D-m
+pp,Analysis&Forecast,nrt.cmems-du.eu,https://doi.org/10.48670/moi-00056,cmems_mod_nws_bgc-pp_anfc_7km-3D_P1D-m,cmems_mod_nws_bgc_anfc_0.027deg-3D_P1D-m
