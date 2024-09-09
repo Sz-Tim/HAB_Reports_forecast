@@ -302,16 +302,45 @@ saveRDS(habAvg_tox.df, "data/2_new/tox_habAvg.rds")
 
 
 
+
+# yday averages -----------------------------------------------------------
+
+for(i in c("hab", "tox")) {
+  # CMEMS points
+  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current/cmems_sitePt_{i}.rds")),
+                         readRDS(glue("data/2_new/cmems_sitePt_{i}.rds"))),
+               glue("data/2_new/ydayAvg_cmems_sitePt_{i}.rds"),
+               cmems_id, version, yday)
+  # CMEMS buffers
+  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current/cmems_siteBufferNSEW_{i}.rds")),
+                         readRDS(glue("data/2_new/cmems_siteBufferNSEW_{i}.rds"))),
+               glue("data/2_new/ydayAvg_cmems_siteBufferNSEW_{i}.rds"),
+               siteid, quadrant, yday)
+  # WRF points
+  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current/wrf_sitePt_{i}.rds")),
+                         readRDS(glue("data/2_new/wrf_sitePt_{i}.rds"))),
+               glue("data/2_new/ydayAvg_wrf_sitePt_{i}.rds"),
+               wrf_id, version, yday)
+  # WRF buffers
+  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current/wrf_siteBufferNSEW_{i}.rds")),
+                         readRDS(glue("data/2_new/wrf_siteBufferNSEW_{i}.rds"))),
+               glue("data/2_new/ydayAvg_wrf_siteBufferNSEW_{i}.rds"),
+               siteid, quadrant, yday)
+}
+
+
+
+
 # compile -----------------------------------------------------------------
 
 cat("-------- Compiling datasets:", as.character(Sys.time()), "\n")
 
 # HABs
-hab.ls <- load_datasets("2_new", "hab")
+hab.ls <- load_datasets("2_new", "hab", "2_new")
 saveRDS(hab.ls$compiled, "data/2_new/data_hab_all.rds")
 
 # toxins
-tox.ls <- load_datasets("2_new", "tox")
+tox.ls <- load_datasets("2_new", "tox", "2_new")
 saveRDS(tox.ls$compiled, "data/2_new/data_tox_all.rds")
 
 obs_end <- list(

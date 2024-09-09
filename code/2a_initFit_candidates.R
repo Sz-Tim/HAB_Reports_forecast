@@ -1,0 +1,61 @@
+# PRIMROSE: Predicting Risk and Impact of Harmful Events on the Aquaculture Sector
+# HAB Forecasting in the UK and Ireland
+# Tim Szewczyk
+# Model periodic re-fits
+
+
+# setup -------------------------------------------------------------------
+library(tidyverse)
+library(glue)
+library(tidymodels)
+library(nnet)
+library(randomForest)
+library(glmnet)
+library(xgboost)
+library(earth)
+library(bonsai)
+library(lightgbm)
+library(brms)
+library(bayesian)
+library(future)
+library(butcher)
+source("code/00_fn.R")
+
+y_i <- bind_rows(read_csv("data/i_hab.csv", show_col_types=F) |> 
+                   arrange(abbr) |> mutate(type="hab"),
+                 read_csv("data/i_tox.csv", show_col_types=F) |> 
+                   arrange(abbr) |> mutate(type="tox")) |>
+  filter(! abbr %in% c("AZP", "YTX", "Prli"))
+
+covSet.df <- expand_grid(y=y_i$abbr,
+                         Avg=c(0,1), 
+                         Xf=c(0,1),
+                         XN=c(0,1),
+                         Del=c(0,1)) |>
+  group_by(y) |>
+  mutate(id=row_number(),
+         f=glue("{id}-Avg{Avg}_Xf{Xf}_XN{XN}_Del{Del}")) |>
+  ungroup() |>
+  arrange(y, id) 
+
+candidates <- c(1="Ridge", 
+                2="MARS", 
+                3="NN",
+                4="RF",
+                5="Boost",
+                6="lgbm",
+                7="HBL")
+m <- 1 # model type to run
+
+
+for(i in 1:nrow(covSet.df)) {
+  fit_covSet(y_i=y_i, 
+             base.dir="out/0_init",
+             covSet=covSet.df[i,], 
+             mod=candidates[m], 
+             test_prop=0.75, 
+             nTuneVal=2, 
+             ncores=4, 
+             responses=c(alert="alert"))
+}
+

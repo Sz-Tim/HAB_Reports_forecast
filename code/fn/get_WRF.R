@@ -133,7 +133,7 @@ nest_WRF_domains <- function(nc.ls) {
                             res=names(nc.ls)[.x]) |>
                      st_as_sf(coords=c("lon", "lat"), crs=4326))
   hull.wrf <- map(1:nDomain, 
-                  ~st_convex_hull(st_union(coord.wrf[[.x]])) |>
+                  ~sf::st_convex_hull(st_union(coord.wrf[[.x]])) |>
                     st_as_sf() |> mutate(res=names(nc.ls)[.x]))
   merge.wrf <- map(coord.wrf, ~.x |> mutate(in_d02=0, in_d03=0))
   if(nDomain==3) {
@@ -198,6 +198,7 @@ subset_WRF <- function(domain, wrf.out, v2_start=NULL, refreshStart=NULL) {
   wrf.ls <- vector("list", length(f.wrf))
   for(i in seq_along(f.wrf)) {
     date_i <- str_split_fixed(str_split_fixed(f.wrf[i], "/wrfF?_", 2)[,2], "_d0", 2)[,1]
+    if(date_i == "NA") next
     if(is.null(refreshStart) || date_i >= refreshStart) {
       v_i <- which(date_i >= v_dateRng$start & date_i < v_dateRng$end)
       wrf.ls[[i]] <- readRDS(f.wrf[i]) |>
@@ -215,9 +216,10 @@ subset_WRF <- function(domain, wrf.out, v2_start=NULL, refreshStart=NULL) {
 
 
 aggregate_WRF <- function(wrf.out, v2_start=ymd("2019-04-01"), refreshStart=NULL) {
-  wrf.df <- subset_WRF("d01", wrf.out, v2_start=ymd("2019-04-01"), refreshStart) |>
-    bind_rows(subset_WRF("d02", wrf.out, v2_start=ymd("2019-04-01"), refreshStart)) |>
-    bind_rows(subset_WRF("d03", wrf.out, v2_start=ymd("2019-04-01"), refreshStart)) |>
+  d01 <- subset_WRF("d01", wrf.out, v2_start=v2_start, refreshStart)
+  d02 <- subset_WRF("d02", wrf.out, v2_start=v2_start, refreshStart)
+  d03 <- subset_WRF("d03", wrf.out, v2_start=v2_start, refreshStart)
+  wrf.df <-  bind_rows(d01, d02, d03) |>
     filter(!is.na(date)) |>
     arrange(date, res, i) |>
     group_by(date) |>

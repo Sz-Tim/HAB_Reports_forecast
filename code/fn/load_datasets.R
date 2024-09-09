@@ -7,7 +7,7 @@
 #' @export
 #'
 #' @examples
-load_datasets <- function(sub.dir, target) {
+load_datasets <- function(sub.dir, target, ydayAvg.dir) {
   d.ls <- list(
     site=readRDS(glue("data/site_{target}_df.rds")),
     obs=readRDS(glue("data/{sub.dir}/{target}_obs.rds")),
@@ -22,13 +22,13 @@ load_datasets <- function(sub.dir, target) {
     d.ls$habAvg <- readRDS(glue("data/{sub.dir}/tox_habAvg.rds"))
   }
   yday_env <- list(
-    cmems.pt=readRDS(glue("data/1_current/ydayAvg_cmems_sitePt_{target}.rds")) |> 
+    cmems.pt=readRDS(glue("data/{ydayAvg.dir}/ydayAvg_cmems_sitePt_{target}.rds")) |> 
       filter(version==max(version)) |> select(-version),
-    cmems.buf=readRDS(glue("data/1_current/ydayAvg_cmems_siteBufferNSEW_{target}.rds")) |>
+    cmems.buf=readRDS(glue("data/{ydayAvg.dir}/ydayAvg_cmems_siteBufferNSEW_{target}.rds")) |>
       pivot_wider(names_from="quadrant", values_from=-(1:3), names_sep="Dir"),
-    wrf.pt=readRDS(glue("data/1_current/ydayAvg_wrf_sitePt_{target}.rds")) |> 
+    wrf.pt=readRDS(glue("data/{ydayAvg.dir}/ydayAvg_wrf_sitePt_{target}.rds")) |> 
       filter(version==max(version)) |> select(-version),
-    wrf.buf=readRDS(glue("data/1_current/ydayAvg_wrf_siteBufferNSEW_{target}.rds")) |>
+    wrf.buf=readRDS(glue("data/{ydayAvg.dir}/ydayAvg_wrf_siteBufferNSEW_{target}.rds")) |>
       pivot_wider(names_from="quadrant", values_from=-(1:3), names_sep="Dir")
   )
   d.ls$compiled <- d.ls$site |> select(-sin) |>
