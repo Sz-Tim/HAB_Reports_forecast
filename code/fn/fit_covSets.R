@@ -11,13 +11,13 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
   y <- covSet$y
   
   # directories
-  data.dir <- glue("data/{run_type}/compiled/")
+  data.dir <- glue("data/{run_type}/")
   fit.dir <- glue("out/{run_type}/model_fits/{f}/")
   cv.dir <- glue("{fit.dir}/cv/")
   ens.dir <- glue("out/{run_type}/ensembles/")
   out.dir <- glue("out/{run_type}/compiled/{f}/")
   log.dir <- glue("out/logs/{run_type}/")
-  dir.create(data.dir, recursive=T, showWarnings=F)
+  dir.create(glue("{data.dir}/compiled/"), recursive=T, showWarnings=F)
   dir.create(ens.dir, recursive=T, showWarnings=F)
   dir.create(cv.dir, recursive=T, showWarnings=F)
   dir.create(out.dir, recursive=T, showWarnings=F)
@@ -73,7 +73,7 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
   set.seed(1003)
   if(test_prop > 0) {
     obs.split <- group_initial_split(obs.ls, group=year, prop=test_prop)
-    saveRDS(obs.split, glue("{data.dir}/{y}_{id}_dataSplit.rds"))
+    saveRDS(obs.split, glue("{data.dir}/compiled/{y}_{id}_dataSplit.rds"))
     obs.train <- training(obs.split)
     obs.test <- testing(obs.split)
   } else {
@@ -89,8 +89,8 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
     d.y$test <- map(prep.ls, ~bake(.x, obs.test))
     dPCA.y$test <- map(prepPCA.ls, ~bake(.x, obs.test))
   }
-  saveRDS(d.y, glue("{data.dir}/{y}_{id}_dy_testPct-{test_prop}.rds"))
-  saveRDS(dPCA.y, glue("{data.dir}/{y}_{id}_dPCAy_testPct-{test_prop}.rds"))
+  saveRDS(d.y, glue("{data.dir}/compiled/{y}_{id}_dy_testPct-{test_prop}.rds"))
+  saveRDS(dPCA.y, glue("{data.dir}/compiled/{y}_{id}_dPCAy_testPct-{test_prop}.rds"))
   covs <- filter_corr_covs(all_covs, d.y, covs_exclude)
   covsPCA <- names(dPCA.y$train[[1]] |> select(starts_with("PC")))
   
