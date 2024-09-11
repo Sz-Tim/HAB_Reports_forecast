@@ -14,7 +14,7 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
   data.dir <- glue("data/{run_type}/")
   fit.dir <- glue("out/{run_type}/model_fits/{f}/")
   cv.dir <- glue("{fit.dir}/cv/")
-  ens.dir <- glue("{out/{run_type}}/ensembles/")
+  ens.dir <- glue("out/{run_type}/ensembles/")
   out.dir <- glue("out/{run_type}/compiled/{f}/")
   log.dir <- glue("out/logs/{run_type}/")
   dir.create(ens.dir, recursive=T, showWarnings=F)
