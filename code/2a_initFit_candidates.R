@@ -54,7 +54,7 @@ for(i in 1:nrow(covSet.df)) {
              covSet=covSet.df[i,], 
              mod=candidates[m], 
              test_prop=0.75, 
-             nTuneVal=100, 
+             nTuneVal=ifelse(candidates[m] %in% c("Ridge", "MARS"), 1e3, 1e2), 
              ncores=40, 
              responses=c(alert="alert"))
 }
