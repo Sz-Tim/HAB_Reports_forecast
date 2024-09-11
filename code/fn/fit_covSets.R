@@ -1,7 +1,7 @@
 
 
 
-fit_covSet <- function(y_i, base.dir, covSet, mod, split_test=TRUE,
+fit_covSet <- function(y_i, base.dir, covSet, mod, test_prop=0.75,
                        nTuneVal=2, prior_strength=1, ncores=4, 
                        responses=c(alert="alert")) {
  
