@@ -117,9 +117,9 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
     if(mod!="HB") { 
       # ML models
       if(.Platform$OS.type=="unix") {
-        plan(multisession, workers=ncores)
-      } else {
         plan(multicore, workers=ncores)
+      } else {
+        plan(multisession, workers=ncores)
       }
       opts <- vfold_cv(d.y$train[[r]], strata=r)
       tunes <- list(nTuneVal) |> set_names(mod) 
