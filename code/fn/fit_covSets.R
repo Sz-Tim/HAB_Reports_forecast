@@ -9,6 +9,7 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
   f <- covSet$f
   id <- covSet$id
   y <- covSet$y
+  y_i.i <- y_i |> filter(abbr==y)
   
   # directories
   data.dir <- glue("data/{run_type}/")
@@ -99,7 +100,7 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
     responses,
     ~list(ML=formula(glue("{.x} ~ .")),
           ML_PCA=formula(glue("{.x} ~ .")),
-          HBL=make_HB_formula(.x, c(covs$main, covs$interact)),
+          HB=make_HB_formula(.x, c(covs$main, covs$interact)),
           HBL_PCA=make_HB_formula(.x, covsPCA),
           HB_vars=formula(glue("{.x} ~ yday + lon + lat + siteid +",
                                "{paste(unlist(covs), collapse='+')}")),
@@ -112,19 +113,14 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
       file=glue("{log.dir}/{id}_{y}_{mod}.log"))
   
   for(r in responses) {
-    set.seed(1003)
     
-    if(mod!="HB") { 
-      # ML models
-      if(.Platform$OS.type=="unix") {
-        plan(multicore, workers=ncores)
-      } else {
-        plan(multisession, workers=ncores)
-      }
-      opts <- vfold_cv(d.y$train[[r]], strata=r)
-      tunes <- list(nTuneVal) |> set_names(mod) 
-    } else {
-      # HB models
+    set.seed(1003)
+    folds_og <- vfold_cv(d.y$train[[r]], strata=r)
+    set.seed(1003)
+    folds_PCA <- vfold_cv(dPCA.y$train[[r]], strata=r)
+    
+    if(mod == "HB") {
+      # HB models --------------------------------------------------------------
       priStr <- switch(
         prior_strength,
         "1"=list(r1=0.2, r2=2, hs1=0.5, hs2=0.6, b=0.75, de=0.3, i=1),
@@ -135,28 +131,36 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
         iter=1500,
         warmup=1000,
         chains=3,
-        cores=ncores,
+        cores=3,
         ctrl=list(adapt_delta=0.8, max_treedepth=10),
         prior_i=priStr$i
       )
-      tunes <- map(
-        responses, 
-        ~list(HBL=make_HB_priors(priStr, "HBL", .x, covs),
-              HBL_PCA=make_HB_priors(priStr, "HBL", .x, covsPCA, PCA=T))
+      priors <- map(responses, 
+        ~list(HB=make_HB_priors(priStr, "HB", .x, covs),
+              HBL_PCA=make_HB_priors(priStr, "HB", .x, covsPCA, PCA=T))
       )
+      
+      # fit models
+      fit_candidate(mod, r, form.ls, d.y$train, opts, priors, fit.dir, y)
+      fit_candidate(mod, r, form.ls, dPCA.y$train, opts, priors, fit.dir, y, "_PCA")
+      
+      # run CV
+      HB_run_CV("HB", folds_og, cv.dir, y, y_i.i, r, opts, priors, priors)
+      HB_run_CV("HB", folds_PCA, cv.dir, y, y_i.i, r, form.ls, opts, priors, PCA=T)
+    } else {
+      
+      # ML models --------------------------------------------------------------
+      if(.Platform$OS.type=="unix") {
+        plan(multicore, workers=ncores)
+      } else {
+        plan(multisession, workers=ncores)
+      }
+      tunes <- list(nTuneVal) |> set_names(mod) 
+      fit_candidate(mod, r, form.ls, d.y$train, folds_og, tunes, fit.dir, y)
+      fit_candidate(mod, r, form.ls, dPCA.y$train, folds_PCA, tunes, fit.dir, y, "_PCA")
+      plan(sequential)
     }
-    
-    # fit non-PCA covariates
-    fit_candidate(mod, r, form.ls, d.y$train, opts, tunes, fit.dir, y)
-    
-    # fit PCA covariates
-    set.seed(1003)
-    if(mod != "HB") {
-      opts <- vfold_cv(dPCA.y$train[[r]], strata=r)
-    }
-    fit_candidate(mod, r, form.ls, dPCA.y$train, opts, tunes, fit.dir, y, "_PCA")
   }
-  plan(sequential)
-  
+
   cat("Finished", f, "for", y, ":", as.character(Sys.time()), "\n")
 }

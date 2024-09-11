@@ -108,7 +108,7 @@ fit_candidate <- function(mod, resp, form.ls, d.ls, opts, tunes, out.dir, y, suf
   }
   
   # Fit Hierarchical Bayesian models
-  if(mod %in% c("HBL", "HBN")) {
+  if(mod == "HB") {
     library(brms)
     fit_ID <- glue("{y}_{resp}_{mod}{opts$prior_i}{ifelse(is.null(suffix),'',suffix)}")
     if(file.exists(glue("{out.dir}/{fit_ID}.rds"))) {

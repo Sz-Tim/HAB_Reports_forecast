@@ -44,8 +44,8 @@ candidates <- c("Ridge",
                 "RF",
                 "Boost",
                 "lgbm",
-                "HBL")
-m <- 1 # model type to run
+                "HB")
+m <- 7 # model type to run
 
 
 for(i in 1:nrow(covSet.df)) {

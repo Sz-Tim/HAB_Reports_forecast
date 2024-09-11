@@ -42,8 +42,8 @@ prep_recipe <- function(train.df, response, covsExclude="NA", dimReduce=FALSE) {
     step_harmonic(yday, frequency=1, cycle_size=365, keep_original_cols=T) |>
     step_rename(ydayCos=yday_cos_1, ydaySin=yday_sin_1) |>
     step_interact(terms=~ydaySin:ydayCos, sep="X") |>
-    step_bs(lon, deg_free=8) |>
-    step_bs(lat, deg_free=8) |>
+    step_bs(lon, deg_free=8, keep_original_cols=T) |>
+    step_bs(lat, deg_free=8, keep_original_cols=T) |>
     step_bs(lonXlat, deg_free=8) |>
     step_rename_at(contains("_"), fn=~str_remove_all(.x, "_")) |>
     step_select(-matches(covsExclude))
