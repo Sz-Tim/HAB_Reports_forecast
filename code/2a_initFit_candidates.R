@@ -19,7 +19,7 @@ library(brms)
 library(bayesian)
 library(future)
 library(butcher)
-source("code/00_fn.R")
+walk(dir("code/fn", ".R", full.names=T), source)
 
 y_i <- bind_rows(read_csv("data/i_hab.csv", show_col_types=F) |> 
                    arrange(abbr) |> mutate(type="hab"),
@@ -38,24 +38,24 @@ covSet.df <- expand_grid(y=y_i$abbr,
   ungroup() |>
   arrange(y, id) 
 
-candidates <- c(1="Ridge", 
-                2="MARS", 
-                3="NN",
-                4="RF",
-                5="Boost",
-                6="lgbm",
-                7="HBL")
+candidates <- c("Ridge", 
+                "MARS", 
+                "NN",
+                "RF",
+                "Boost",
+                "lgbm",
+                "HBL")
 m <- 1 # model type to run
 
 
 for(i in 1:nrow(covSet.df)) {
   fit_covSet(y_i=y_i, 
-             base.dir="out/0_init",
+             run_type="0_init",
              covSet=covSet.df[i,], 
              mod=candidates[m], 
              test_prop=0.75, 
              nTuneVal=2, 
-             ncores=4, 
+             ncores=40, 
              responses=c(alert="alert"))
 }
 

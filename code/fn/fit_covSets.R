@@ -1,7 +1,7 @@
 
 
 
-fit_covSet <- function(y_i, base.dir, covSet, mod, test_prop=0.75,
+fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
                        nTuneVal=2, prior_strength=1, ncores=4, 
                        responses=c(alert="alert")) {
  
@@ -11,10 +11,12 @@ fit_covSet <- function(y_i, base.dir, covSet, mod, test_prop=0.75,
   y <- covSet$y
   
   # directories
-  fit.dir <- glue("{base.dir}/model_fits/{f}/")
+  data.dir <- glue("data/{run_type}/")
+  fit.dir <- glue("out/{run_type}/model_fits/{f}/")
   cv.dir <- glue("{fit.dir}/cv/")
-  ens.dir <- glue("{base.dir}/ensembles/")
-  out.dir <- glue("{base.dir}/compiled/{f}/")
+  ens.dir <- glue("{out/{run_type}}/ensembles/")
+  out.dir <- glue("out/{run_type}/compiled/{f}/")
+  log.dir <- glue("out/logs/{run_type}/")
   dir.create(ens.dir, recursive=T, showWarnings=F)
   dir.create(cv.dir, recursive=T, showWarnings=F)
   dir.create(out.dir, recursive=T, showWarnings=F)
@@ -51,10 +53,10 @@ fit_covSet <- function(y_i, base.dir, covSet, mod, test_prop=0.75,
   all_covs$interact <- c(all_covs$interact,
                          paste("lnNWt1", c(all_covs$main[-2]), sep="X"))
   # Identify excluded covariates
-  covs_exclude <- get_excluded_cov_regex(covSet)
+  covs_exclude <- get_excluded_cov_regex(covSet$f)
   
   # testing/training splits
-  obs.ls <- map_dfr(dirf(base.dir, "data_.*_all.rds"), readRDS) |>
+  obs.ls <- map_dfr(dirf(data.dir, "data_.*_all.rds"), readRDS) |>
     filter(y==y) |>
     select(all_of(col_metadata), all_of(col_resp),
            "alert1", "alert2", any_of(unname(unlist(all_covs)))) |>
@@ -69,7 +71,7 @@ fit_covSet <- function(y_i, base.dir, covSet, mod, test_prop=0.75,
   set.seed(1003)
   if(test_prop > 0) {
     obs.split <- group_initial_split(obs.ls, group=year, prop=test_prop)
-    saveRDS(obs.split, glue("{base.dir}/{y}_{covSet}_dataSplit.rds"))
+    saveRDS(obs.split, glue("{data.dir}/{y}_{covSet}_dataSplit.rds"))
     obs.train <- training(obs.split)
     obs.test <- testing(obs.split)
   } else {
@@ -85,8 +87,8 @@ fit_covSet <- function(y_i, base.dir, covSet, mod, test_prop=0.75,
     d.y$test <- map(prep.ls, ~bake(.x, obs.test))
     dPCA.y$test <- map(prepPCA.ls, ~bake(.x, obs.test))
   }
-  saveRDS(d.y, glue("{base.dir}/{y}_{covSet}_dy_testPct-{test_prop}.rds"))
-  saveRDS(dPCA.y, glue("{base.dir}/{y}_{covSet}_dPCAy_testPct-{test_prop}.rds"))
+  saveRDS(d.y, glue("{data.dir}/{y}_{covSet}_dy_testPct-{test_prop}.rds"))
+  saveRDS(dPCA.y, glue("{data.dir}/{y}_{covSet}_dPCAy_testPct-{test_prop}.rds"))
   covs <- filter_corr_covs(all_covs, d.y, covs_exclude)
   covsPCA <- names(dPCA.y$train[[1]] |> select(starts_with("PC")))
   
@@ -105,7 +107,7 @@ fit_covSet <- function(y_i, base.dir, covSet, mod, test_prop=0.75,
   )
   
   cat("Starting", covSet, "for", y, ":", as.character(Sys.time()), "\n",
-      file=glue("out/logs/d{d}_{y}_{mod}.log"))
+      file=glue("{log.dir}/d{d}_{y}_{mod}.log"))
   
   for(r in responses) {
     set.seed(1003)
