@@ -74,14 +74,16 @@ fit_candidate <- function(mod, resp, form.ls, d.ls, opts, tunes, out.dir, y, suf
                       update(mtry=finalize(mtry(), opts)), 
                     size=tunes[[mod]]),
                   metrics=metric_set(roc_auc2, pr_auc2, avg_prec2), 
-                  control=control_grid(save_pred=T))  
+                  control=control_grid(save_pred=T, 
+                                       parallel_over="everything"))  
     } else {
       out_tune <- wf |>
         tune_grid(resamples=opts, 
                   grid=grid_latin_hypercube(extract_parameter_set_dials(ML_spec), 
                                             size=tunes[[mod]]),
                   metrics=metric_set(roc_auc2, pr_auc2, avg_prec2), 
-                  control=control_grid(save_pred=T))
+                  control=control_grid(save_pred=T, 
+                                       parallel_over="everything"))
       # saveRDS(out_tune |> butcher, glue("{out.dir}/meta/{fit_ID}_tune.rds")) 
     }
     best <- select_best(out_tune, metric="avg_prec2")
