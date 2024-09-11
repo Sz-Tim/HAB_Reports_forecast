@@ -11,21 +11,20 @@
 #' @examples
 prep_recipe <- function(train.df, response, covsExclude="NA", dimReduce=FALSE) {
   respExclude <- grep(response, c("lnN", "tl", "alert"), value=T, invert=T)
-  pred_vars <- names(train.df)
+  pred_vars <- names(train.df |> select(-all_of(response)))
   include_UVX <- !grepl("Xfetch", covsExclude)
   include_lnNX <- !grepl("lnNWt1X", covsExclude)
   rec <- recipe(train.df) |>
-    step_mutate(prevAlert=alert1, role="ID") |>
+    update_role(names(response), new_role="outcome") |>
     update_role(all_of(pred_vars), new_role="predictor") |>
-    update_role(all_of(response), new_role="outcome") |>
     update_role(obsid, y, date, siteid, year, new_role="ID") |>
-    update_role(lon, lat, yday, new_role="RE")  |>
+    update_role(lon, lat, yday, new_role="RE") |>
+    step_mutate(prevAlert=alert1, role="ID") |>
     step_select(-any_of(respExclude)) |> 
     step_dummy(all_factor_predictors()) |>
     step_logit(starts_with("prAlert"), offset=0.01) |>
     step_logit(ends_with("A1"), offset=0.01) |>
-    step_mutate_at(lon, lat, fn=list(z=~.)) |>
-    step_interact(terms=~lonz:latz, sep="X")
+    step_interact(terms=~lon:lat, sep="X")
   if(include_UVX) {
     rec <- rec |>
       step_interact(terms=~UWk:fetch:matches("Dir[EW]"), sep="X") |>
@@ -43,14 +42,14 @@ prep_recipe <- function(train.df, response, covsExclude="NA", dimReduce=FALSE) {
     step_harmonic(yday, frequency=1, cycle_size=365, keep_original_cols=T) |>
     step_rename(ydayCos=yday_cos_1, ydaySin=yday_sin_1) |>
     step_interact(terms=~ydaySin:ydayCos, sep="X") |>
-    step_bs(lonz, deg_free=tune()) |>
-    step_bs(latz, deg_free=tune()) |>
-    step_bs(lonzXlatz, deg_free=tune()) |>
+    step_bs(lon, deg_free=8) |>
+    step_bs(lat, deg_free=8) |>
+    step_bs(lonXlat, deg_free=8) |>
     step_rename_at(contains("_"), fn=~str_remove_all(.x, "_")) |>
     step_select(-matches(covsExclude))
   if(dimReduce) {
     rec <- rec |>
-      step_pca(all_predictors(), threshold=tune())
+      step_pca(all_predictors(), threshold=0.95)
   }
   rec |>
     prep(training=train.df)
@@ -103,16 +102,9 @@ filter_corr_covs <- function(all_covs, data.y, covsExclude="NA") {
 #'
 #' @examples
 get_excluded_cov_regex <- function(covSet) {
-  covSet.df <- expand_grid(Avg=c(0,1), 
-                           Xf=c(0,1),
-                           XN=c(0,1),
-                           Del=c(0,1)) |>
-    mutate(id=row_number(),
-           f=glue("{id}-Avg{Avg}_Xf{Xf}_XN{XN}_Del{Del}"),
-           exclude=glue("Dt|", 
-                        "{ifelse(Avg==0, 'Avg|', 'NA|')}",
-                        "{ifelse(Xf==0, 'Xfetch|', 'NA|')}",
-                        "{ifelse(XN==0, 'lnNWt1X|', 'NA|')}",
-                        "{ifelse(Del==0, 'Delta', 'NA')}"))
-  filter(covSet.df, f==covSet)$exclude
+  with(covSet, glue("Dt|", 
+                    "{ifelse(Avg==0, 'Avg|', 'NA|')}",
+                    "{ifelse(Xf==0, 'Xfetch|', 'NA|')}",
+                    "{ifelse(XN==0, 'lnNWt1X|', 'NA|')}",
+                    "{ifelse(Del==0, 'Delta', 'NA')}"))
 }
