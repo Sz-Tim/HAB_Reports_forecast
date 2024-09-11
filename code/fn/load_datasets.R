@@ -17,7 +17,8 @@ load_datasets <- function(sub.dir, target, ydayAvg.dir) {
     wrf.buf=readRDS(glue("data/{sub.dir}/wrf_siteBufferNSEW_{target}.rds")),
     fsa=readRDS(glue("data/{sub.dir}/fsa_df.rds")),
     cefas=readRDS(glue("data/{sub.dir}/cefas_df.rds"))
-  )
+  ) |>
+    map(~.x |> mutate(across(matches("date"), ~as_date(.x))))
   if(target=="tox") {
     d.ls$habAvg <- readRDS(glue("data/{sub.dir}/tox_habAvg.rds"))
   }
