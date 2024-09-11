@@ -158,5 +158,5 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
   }
   plan(sequential)
   
-  cat("Finished", covSet, "for", y, ":", as.character(Sys.time()), "\n")
+  cat("Finished", f, "for", y, ":", as.character(Sys.time()), "\n")
 }
