@@ -33,7 +33,7 @@ covSet.df <- expand_grid(y=y_i$abbr,
                          XN=c(0,1),
                          Del=c(0,1)) |>
   group_by(y) |>
-  mutate(id=row_number(),
+  mutate(id=paste0("d", str_pad(row_number(), 2, "left", "0")),
          f=glue("{id}-Avg{Avg}_Xf{Xf}_XN{XN}_Del{Del}")) |>
   ungroup() |>
   arrange(y, id) 
