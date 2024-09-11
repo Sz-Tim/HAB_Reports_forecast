@@ -302,7 +302,7 @@ saveRDS(habAvg_tox.df, "data/0_init/tox_habAvg.rds")
 # extract sites -----------------------------------------------------------
 
 # . CMEMS  site:date ------------------------------------------------------
-cmems_i <- list(all=c("chl", "no3", "o2", "ph", "phyc", "po4", "pp"))
+cmems_i <- list(all=c("chl", "no3", "o2", "ph", "phyc", "po4"))
 cmems.df <- readRDS(last(dirf("data/0_init", "cmems_end.*rds")))
 cmems.sf <- readRDS("data/00_env/cmems/coords_chl.rds") |>
   mutate(date=first(cmems.df$date)) |>
