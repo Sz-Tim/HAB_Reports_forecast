@@ -167,7 +167,7 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
       }
       tunes <- list(nTuneVal) |> set_names(mod) 
       fit_candidate(mod, r, form.ls, d.y$train, folds_og_ML, tunes, fit.dir, y.i)
-      fit_candidate(mod, r, form.ls, dPCA.y$train, folds_PCA, tunes, fit.dir, y.i, "_PCA")
+      fit_candidate(mod, r, form.ls, dPCA.y$train, folds_PCA_ML, tunes, fit.dir, y.i, "_PCA")
       plan(sequential)
     }
   }
