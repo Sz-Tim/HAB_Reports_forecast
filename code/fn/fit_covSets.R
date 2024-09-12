@@ -8,8 +8,8 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
   # covariate set / response info
   f <- covSet$f
   id <- covSet$id
-  y <- covSet$y
-  y_i.i <- y_i |> filter(abbr==y)
+  y.i <- covSet$y
+  y_i.i <- y_i |> filter(abbr==y.i)
   
   # directories
   data.dir <- glue("data/{run_type}/")
@@ -60,7 +60,7 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
   
   # testing/training splits
   obs.ls <- map_dfr(dirf(data.dir, "data_.*_all.rds"), readRDS) |>
-    filter(y==y) |>
+    filter(y==y.i) |>
     select(all_of(col_metadata), all_of(col_resp),
            "alert1", "alert2", any_of(unname(unlist(all_covs)))) |>
     mutate(across(starts_with("alert"), ~factor(.x)),
@@ -74,7 +74,7 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
   set.seed(1003)
   if(test_prop > 0) {
     obs.split <- group_initial_split(obs.ls, group=year, prop=test_prop)
-    saveRDS(obs.split, glue("{data.dir}/compiled/{y}_{id}_dataSplit.rds"))
+    saveRDS(obs.split, glue("{data.dir}/compiled/{y.i}_{id}_dataSplit.rds"))
     obs.train <- training(obs.split)
     obs.test <- testing(obs.split)
   } else {
@@ -90,8 +90,8 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
     d.y$test <- map(prep.ls, ~bake(.x, obs.test))
     dPCA.y$test <- map(prepPCA.ls, ~bake(.x, obs.test))
   }
-  saveRDS(d.y, glue("{data.dir}/compiled/{y}_{id}_dy_testPct-{test_prop}.rds"))
-  saveRDS(dPCA.y, glue("{data.dir}/compiled/{y}_{id}_dPCAy_testPct-{test_prop}.rds"))
+  saveRDS(d.y, glue("{data.dir}/compiled/{y.i}_{id}_dy_testPct-{test_prop}.rds"))
+  saveRDS(dPCA.y, glue("{data.dir}/compiled/{y.i}_{id}_dPCAy_testPct-{test_prop}.rds"))
   covs <- filter_corr_covs(all_covs, d.y, covs_exclude)
   covsPCA <- names(dPCA.y$train[[1]] |> select(starts_with("PC")))
   
@@ -109,15 +109,25 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
     )
   )
   
-  cat("Starting", f, "for", y, ":", as.character(Sys.time()), "\n",
-      file=glue("{log.dir}/{id}_{y}_{mod}.log"))
+  cat("Starting", f, "for", y.i, ":", as.character(Sys.time()), "\n",
+      file=glue("{log.dir}/{id}_{y.i}_{mod}.log"))
   
   for(r in responses) {
     
     set.seed(1003)
-    folds_og <- vfold_cv(d.y$train[[r]], strata=r)
+    folds_og_HB <- d.y$train[[r]] |> 
+      vfold_cv(strata=r)
     set.seed(1003)
-    folds_PCA <- vfold_cv(dPCA.y$train[[r]], strata=r)
+    folds_PCA_HB <- dPCA.y$train[[r]] |> 
+      vfold_cv(strata=r)
+    set.seed(1003)
+    folds_og_ML <- d.y$train[[r]] |> 
+      select(-obsid, -y, -date, -year, -yday, -siteid, -lon, -lat) |>
+      vfold_cv(strata=r)
+    set.seed(1003)
+    folds_PCA_ML <- dPCA.y$train[[r]] |> 
+      select(-obsid, -y, -date, -year, -yday, -siteid, -lon, -lat) |>
+      vfold_cv(strata=r)
     
     if(mod == "HB") {
       # HB models --------------------------------------------------------------
@@ -141,12 +151,12 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
       )
       
       # fit models
-      fit_candidate(mod, r, form.ls, d.y$train, opts, priors, fit.dir, y)
-      fit_candidate(mod, r, form.ls, dPCA.y$train, opts, priors, fit.dir, y, "_PCA")
+      fit_candidate(mod, r, form.ls, d.y$train, opts, priors, fit.dir, y.i)
+      fit_candidate(mod, r, form.ls, dPCA.y$train, opts, priors, fit.dir, y.i, "_PCA")
       
       # run CV
-      HB_run_CV("HB", folds_og, cv.dir, y, y_i.i, r, opts, priors, priors)
-      HB_run_CV("HB", folds_PCA, cv.dir, y, y_i.i, r, form.ls, opts, priors, PCA=T)
+      HB_run_CV("HB", folds_og_HB, cv.dir, y.i, y_i.i, r, opts, priors, priors)
+      HB_run_CV("HB", folds_PCA_HB, cv.dir, y.i, y_i.i, r, form.ls, opts, priors, PCA=T)
     } else {
       
       # ML models --------------------------------------------------------------
@@ -156,11 +166,11 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
         plan(multisession, workers=ncores)
       }
       tunes <- list(nTuneVal) |> set_names(mod) 
-      fit_candidate(mod, r, form.ls, d.y$train, folds_og, tunes, fit.dir, y)
-      fit_candidate(mod, r, form.ls, dPCA.y$train, folds_PCA, tunes, fit.dir, y, "_PCA")
+      fit_candidate(mod, r, form.ls, d.y$train, folds_og_ML, tunes, fit.dir, y.i)
+      fit_candidate(mod, r, form.ls, dPCA.y$train, folds_PCA, tunes, fit.dir, y.i, "_PCA")
       plan(sequential)
     }
   }
 
-  cat("Finished", f, "for", y, ":", as.character(Sys.time()), "\n")
+  cat("Finished", f, "for", y.i, ":", as.character(Sys.time()), "\n")
 }

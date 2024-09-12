@@ -14,12 +14,10 @@ prep_recipe <- function(train.df, response, covsExclude="NA", dimReduce=FALSE) {
   pred_vars <- names(train.df |> select(-all_of(response)))
   include_UVX <- !grepl("Xfetch", covsExclude)
   include_lnNX <- !grepl("lnNWt1X", covsExclude)
-  rec <- recipe(train.df) |>
-    update_role(names(response), new_role="outcome") |>
+  rec <- recipe(alert ~ ., train.df) |>
     update_role(all_of(pred_vars), new_role="predictor") |>
     update_role(obsid, y, date, siteid, year, new_role="ID") |>
     update_role(lon, lat, yday, new_role="RE") |>
-    step_mutate(prevAlert=alert1, role="ID") |>
     step_select(-any_of(respExclude)) |> 
     step_dummy(all_factor_predictors()) |>
     step_logit(starts_with("prAlert"), offset=0.01) |>
