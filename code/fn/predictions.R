@@ -34,7 +34,7 @@ summarise_predictions <- function(d.y, dPCA.y, resp, fit.dir, y_i.i, suffix=NULL
   }
   
   out.df <- d.y[[resp]] |>
-    select(y, obsid, siteid, date, prevAlert, {{resp}}) 
+    select(y, obsid, siteid, date, {{resp}}) 
   if(!is.null(preds.d)) {
     out.df <- out.df |> bind_cols(preds.d)
   }
@@ -178,7 +178,6 @@ merge_pred_dfs <- function(files, CV=NULL) {
     map_dfr(1:nrow(f.df), 
             ~readRDS(f.df$f[.x]) |> mutate(covSet=paste0("d", f.df$covSet[.x], "."))) |>
       pivot_longer(ends_with("A1"), names_to="model", values_to="prA1") |>
-      select(-prevAlert) |>
       na.omit() |>
       mutate(model=paste0(covSet, model)) |>
       select(-covSet) |>
