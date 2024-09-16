@@ -155,7 +155,7 @@ fit_covSet <- function(y_i, run_type="0_init", covSet, mod, test_prop=0.75,
       fit_candidate(mod, r, form.ls, dPCA.y$train, opts, priors, fit.dir, y.i, "_PCA")
       
       # run CV
-      HB_run_CV("HB", folds_og_HB, cv.dir, y.i, y_i.i, r, opts, priors, priors)
+      HB_run_CV("HB", folds_og_HB, cv.dir, y.i, y_i.i, r, form.ls, opts, priors, PCA=F)
       HB_run_CV("HB", folds_PCA_HB, cv.dir, y.i, y_i.i, r, form.ls, opts, priors, PCA=T)
     } else {
       
