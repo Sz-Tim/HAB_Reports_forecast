@@ -14,7 +14,7 @@
 #' @export
 #'
 #' @examples
-run_Bayes_CV <- function(mod, folds, cv.dir, y, y_i.i, r, form.ls, HB.i, priors, PCA=F, reverse=F) {
+HB_run_CV <- function(mod, folds, cv.dir, y, y_i.i, r, form.ls, HB.i, priors, PCA=F, reverse=F) {
   for(f in 1:nrow(folds)) {
     if(reverse) {
       f <- (nrow(folds):1)[f] 
