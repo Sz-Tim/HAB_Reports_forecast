@@ -160,13 +160,13 @@ summarise_post_preds <- function(post, resp, y_i.i) {
 merge_pred_dfs <- function(files, CV=NULL) {
   f.df <- tibble(f=files, 
                  covSet=str_split(files, "/") |> 
-                   map_chr(~grep("^[0-9][0-9]?-", .x, value=T) |> 
+                   map_chr(~grep("^d[0-9][0-9]?-", .x, value=T) |> 
                              str_split_fixed("-", 2) |> 
                              magrittr::extract(,1)))
   if(is.null(CV)) {
     map(1:nrow(f.df), 
         ~readRDS(f.df$f[.x]) |> 
-          lapply(function(x) {x |> mutate(covSet=paste0("d", f.df$covSet[.x], "."))})) |>
+          lapply(function(x) {x |> mutate(covSet=paste0(f.df$covSet[.x], "."))})) |>
       list_transpose() |>
       map_depth(2, ~.x |> 
                   pivot_longer(ends_with("_A1"), names_to="model", values_to="prA1") |>
@@ -176,7 +176,7 @@ merge_pred_dfs <- function(files, CV=NULL) {
       map(~reduce(.x, full_join)) 
   } else if(CV=="HB") {
     map_dfr(1:nrow(f.df), 
-            ~readRDS(f.df$f[.x]) |> mutate(covSet=paste0("d", f.df$covSet[.x], "."))) |>
+            ~readRDS(f.df$f[.x]) |> mutate(covSet=paste0(f.df$covSet[.x], "."))) |>
       pivot_longer(ends_with("A1"), names_to="model", values_to="prA1") |>
       na.omit() |>
       mutate(model=paste0(covSet, model)) |>
@@ -185,7 +185,7 @@ merge_pred_dfs <- function(files, CV=NULL) {
   } else if(CV=="ML") {
     map(1:nrow(f.df), 
         ~readRDS(f.df$f[.x]) |> 
-          mutate(covSet=paste0("d", f.df$covSet[.x], ".")) |>
+          mutate(covSet=paste0(f.df$covSet[.x], ".")) |>
           pivot_longer(ends_with("A1"), names_to="model", values_to="prA1") |>
           mutate(model=paste0(covSet, model)) |>
           select(-covSet) |>
