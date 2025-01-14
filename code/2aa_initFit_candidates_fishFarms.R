@@ -2,8 +2,6 @@
 # Tim Szewczyk
 # Model periodic re-fits
 
-# ~25% of years are withheld for training the ensemble
-
 # setup -------------------------------------------------------------------
 library(tidyverse)
 library(glue)
@@ -23,21 +21,27 @@ library(habforecastr)
 
 options(future.globals.maxSize=5000*1024^2)
 
-y_i <- bind_rows(read_csv("data/i_hab.csv", show_col_types=F) |> 
-                   arrange(abbr) |> mutate(type="hab"),
-                 read_csv("data/i_tox.csv", show_col_types=F) |> 
-                   arrange(abbr) |> mutate(type="tox")) |>
-  filter(! abbr %in% c("AZP", "YTX", "Prli"))
+y_i <- read_csv("data/i_fish.csv", show_col_types=F) |> 
+  arrange(abbr) |> mutate(type="hab-fish") |>
+  filter(abbr %in% c("Alex", 
+                     # "Assp", # n(A1) == 1
+                     "Cesp", 
+                     "Chco", 
+                     # "Chhsp", 
+                     "Gysp", 
+                     "Kasp")) 
+                     # "Ppsp" 
+                     # "Rhsp"))
 
-n_covSets <- 15 # number of covariate subsets
-prop_covs <- 0.25 # proportion of covariates included per subset
+n_covSets <- 1 # number of covariate subsets
+prop_covs <- 0.3 # proportion of covariates included per subset
 set.seed(1)
 covSet.df <- expand_grid(y=y_i$abbr,
                          id=paste0("d", str_pad(1:n_covSets, 2, "left", "0"))) |>
   mutate(seed=sample(1000, n()),
          prop_covs=prop_covs) |>
   arrange(y, id)
-write_csv(covSet.df, "data/covSet_hab_tox.csv")
+write_csv(covSet.df, "data/covSet_fish.csv")
 
 candidates <- c("Ridge", 
                 "MARS", 
@@ -45,21 +49,19 @@ candidates <- c("Ridge",
                 "RF",
                 "Boost",
                 "lgbm",
-                "HB")[7]
+                "HB")[c(7)]
 
-
-covSet.df <- filter(covSet.df, y == y_i$abbr[9])[10:1,]
 for(m in 1:length(candidates)) {
   for(i in 1:nrow(covSet.df)) {
-    # if(m==1 & i < 123) next
     fit_covSet(y_i=y_i,
                run_type="0_init",
                covSet=covSet.df[i,],
                mod=candidates[m],
-               train_prop=0.75, 
+               train_prop=0.75,
                nTuneVal=ifelse(candidates[m] %in% c("Ridge", "MARS"), 1e3, 1e2),
-               ncores=20,
-               responses=c(alert="alert"))
+               ncores=10,
+               responses=c(alert="alert"),
+               rebalance_thresh=0.1)
   }
 }
 

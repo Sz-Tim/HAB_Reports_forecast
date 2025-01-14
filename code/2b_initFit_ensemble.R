@@ -20,7 +20,7 @@ library(brms)
 library(bayesian)
 library(future)
 library(doFuture)
-dir("code/fn", ".R", full.names=T) |> walk(source)
+library(habforecastr)
 
 y_i <- bind_rows(read_csv("data/i_hab.csv", show_col_types=F) |> 
                    arrange(abbr) |> mutate(type="hab"),
@@ -28,21 +28,16 @@ y_i <- bind_rows(read_csv("data/i_hab.csv", show_col_types=F) |>
                    arrange(abbr) |> mutate(type="tox")) |>
   filter(! abbr %in% c("AZP", "YTX", "Prli"))
 
-covSet.df <- expand_grid(y=y_i$abbr,
-                         Avg=c(0,1), 
-                         Xf=c(0,1),
-                         XN=c(0,1),
-                         Del=c(0,1)) |>
-  group_by(y) |>
-  mutate(id=paste0("d", str_pad(row_number(), 2, "left", "0")),
-         f=glue("{id}-Avg{Avg}_Xf{Xf}_XN{XN}_Del{Del}")) |>
-  ungroup() |>
-  arrange(y, id) 
+covSet.df <- read_csv("data/covSet_hab_tox.csv")
+
 
 ncores <- 3
 run_type <- "0_init" 
-test_prop <- 0.75
+train_prop <- 0.75
 responses <- c(alert="alert")
+
+data.dir <- glue("data/{run_type}/")
+base.dir <- glue("out/{run_type}/")
 
 
 
@@ -59,8 +54,7 @@ foreach(i=1:nrow(covSet.df)) %dofuture% {
   
   # covariate set / response info
   run_type <- "0_init" 
-  test_prop <- 0.75
-  f <- covSet.df$f[i]
+  train_prop <- 0.75
   id <- covSet.df$id[i]
   y.i <- covSet.df$y[i]
   y_i.i <- y_i |> filter(abbr==y.i)
@@ -68,14 +62,14 @@ foreach(i=1:nrow(covSet.df)) %dofuture% {
   # directories
   data.dir <- glue("data/{run_type}/")
   base.dir <- glue("out/{run_type}/")
-  fit.dir <- glue("{base.dir}/model_fits/{f}/")
+  fit.dir <- glue("{base.dir}/model_fits/{id}/")
   cv.dir <- glue("{fit.dir}/cv/")
   ens.dir <- glue("{base.dir}/ensembles/")
-  out.dir <- glue("{base.dir}/compiled/{f}/")
+  out.dir <- glue("{base.dir}/compiled/{id}/")
   
   # load datasets
-  d.y <- readRDS(glue("{data.dir}/compiled/{y.i}_{id}_dy_testPct-{test_prop}.rds"))
-  dPCA.y <- readRDS(glue("{data.dir}/compiled/{y.i}_{id}_dPCAy_testPct-{test_prop}.rds"))
+  d.y <- readRDS(glue("{data.dir}/compiled/{y.i}_{id}_dy_testPct-{train_prop}.rds"))
+  dPCA.y <- readRDS(glue("{data.dir}/compiled/{y.i}_{id}_dPCAy_testPct-{train_prop}.rds"))
   
   # generate all fitted values
   fit.ls <- map(responses, ~summarise_predictions(d.y$train, dPCA.y$train, .x, fit.dir, y_i.i))
@@ -99,6 +93,7 @@ ens.dir <- glue("{base.dir}/ensembles/")
 for(i in 1:nrow(y_i)) {
   
   y_i.i <- y_i[i,]
+  y.i <- y_i.i$abbr[i]
   set.seed(1003)
   
   # . ensemble --------------------------------------------------------------
@@ -120,12 +115,10 @@ for(i in 1:nrow(y_i)) {
   cv.ls$alert$year <- year(cv.ls$alert$date)
   fit.ls <- map(responses, ~fit_ensemble(fit.ls, wt.ls, .x, y_i.i, "wtmean"))
   fit.ls <- map(responses, ~fit_ensemble(fit.ls, cv.ls, .x, y_i.i, "GLM_fit", ens.dir, 1e2))
-  fit.ls <- map(responses, ~fit_ensemble(fit.ls, cv.ls, .x, y_i.i, "RF_fit", ens.dir, 10))
   saveRDS(fit.ls, glue("{base.dir}/compiled/{y.i}_fit.rds"))
   
   oos.ls <- map(responses, ~fit_ensemble(oos.ls, wt.ls, .x, y_i.i, "wtmean"))
   oos.ls <- map(responses, ~fit_ensemble(oos.ls, cv.ls, .x, y_i.i, "GLM_oos", ens.dir))
-  oos.ls <- map(responses, ~fit_ensemble(oos.ls, cv.ls, .x, y_i.i, "RF_oos", ens.dir))
   saveRDS(oos.ls, glue("{base.dir}/compiled/{y.i}_oos.rds"))
   
   

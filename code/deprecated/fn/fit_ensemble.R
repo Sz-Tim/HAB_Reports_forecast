@@ -30,12 +30,13 @@ fit_ensemble <- function(out.ls, wt.ls, resp, y_i.i, method="wtmean", out.path=N
     } else if(grepl("[GLM|RF|HB]_fit", method)) {
       avg_prec2 <- metric_tweak("avg_prec2", average_precision, event_level="second")
       folds <- vfold_cv(wt.ls[[resp]], strata="alert")
+      # folds <- group_vfold_cv(wt.ls[[resp]], group=year)
       ens_rec <- recipe(alert~., data=wt.ls[[resp]]) |>
-        update_role(y, obsid, siteid, date, new_role="ID") |>
+        update_role(y, obsid, siteid, date, year, new_role="ID") |>
         step_logit(ends_with("_A1"), offset=0.01) |>
         step_normalize(all_predictors())
       ens_rec2 <- recipe(alert~., data=wt.ls[[resp]]) |>
-        update_role(y, obsid, siteid, date, new_role="ID") 
+        update_role(y, obsid, siteid, date, year, new_role="ID") 
       
       if(method=="GLM_fit") {
         size <- ifelse(is.null(opt), 1e3, opt)
