@@ -1,11 +1,12 @@
-# HAB Forecast
+# Project: HAB Reports Forecast
 # www.habreports.org
 # Tim Szewczyk
-# Initial dataset compilation
+# tim.szewczyk@sams.ac.uk
+# Initial dataset compilation: Fish farms
 
+# TODO: MERGE WITH 1a*.R
 
 # setup -------------------------------------------------------------------
-
 library(terra)
 library(gdistance)
 library(tidyverse)
@@ -15,7 +16,6 @@ library(ncdf4)
 library(sf)
 library(jsonlite)
 library(WeStCOMS)
-library(sevcheck)
 library(habforecastr)
 
 nDays_avg <- 14
@@ -199,6 +199,7 @@ st_write(site_fish.sf, "data/site_fish_sf.gpkg", append=F)
 # extract sites -----------------------------------------------------------
 
 # . CMEMS  site:date ------------------------------------------------------
+fish.df <- readRDS("data/0_init/fish_obs.rds")
 cmems_i <- list(all=c("chl", "no3", "o2", "ph", "phyc", "po4"))
 cmems.df <- readRDS(glue("data/0_init/cmems_end_{max(fish.df$date)+nDays_avg}.rds"))
 cmems.sf <- readRDS("data/00_env/cmems/coords_chl.rds") |>
@@ -233,7 +234,6 @@ wrf_versions <- map(seq_along(dir("data/00_env/wrf", "^domain_d01")),
                       st_as_sf(coords=c("lon", "lat"), remove=F, crs=4326))
 wrf.df <- readRDS(last(dirf("data/0_init/", "wrf_end_.*rds"))) 
 
-# HABs
 site_fish.df <- readRDS("data/site_fish_df.rds") |> select(-starts_with("wrf_id"))
 site_fish.df <- map(wrf_versions, ~site_fish.df |> find_nearest_feature_id(.x, "wrf_id")) |>
   reduce(full_join, by=names(site_fish.df), suffix=paste0(".", seq_along(wrf_versions)))
@@ -245,7 +245,6 @@ saveRDS(wrf.site_fish, "data/0_init/wrf_sitePt_fish.rds")
 
 
 # . WRF  buffer:date ------------------------------------------------------
-# HABs
 site.buffer_fish <- map(wrf_versions, 
                        ~st_read("data/site_fish_sf.gpkg") |> 
                          find_buffer_intersect_ids(.x, "wrf_id")) |>

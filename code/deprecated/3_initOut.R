@@ -21,12 +21,12 @@ mod_i <- tibble(levels=c("nullGrand", "null4wk", "nullAuto", "perfect",
                          "ens", "ensLogitMn", "ensGLM", "ensGLM2",
                          "ensHB", "ensRF", "ensRF2", 
                          "HBL1", "Ridge", "MARS", "NN", 
-                         "RF", "Boost"),
+                         "RF", "Boost", "lgbm"),
                 labels=c("Null[0]", "Null[Date]", "Null[auto]", "perfect", 
                          "Ens-WtMn", "Ens-LogitWtMn", "Ensemble", "Ensemble2", 
                          "Ens-HB", "Ens-RF", "Ens-RF2", 
                          "HB", "Ridge", "MARS", "NN",
-                         "RF", "XGB"))
+                         "RF", "XGB", "lgbm"))
 mod_cols <- c(rep("grey", 3), "grey30",
               rep("grey40", 7),
               "#1f78b4", "#b2df8a", "#33a02c", "#ff7f00", 
@@ -49,8 +49,7 @@ oos.ls <- dirf(glue("{base.dir}/compiled"), "_oos.rds") |>
 #   map(~readRDS(.x)) |> list_transpose() |> map(bind_rows)
 
 fit.ls$alert_L <- fit.ls$alert |>
-  mutate(perfect_A1=if_else(alert=="A0", 1e-3, 1-1e-3),
-         nullAuto_A1=if_else(prevAlert=="A0", 1e-3, 1-1e-3)) |>
+  mutate(perfect_A1=if_else(alert=="A0", 1e-3, 1-1e-3)) |>
   pivot_longer(ends_with("_A1"), names_to="run", values_to="prA1") |>
   mutate(model=str_split_fixed(run, "_", 3)[,1],
          PCA=grepl("PCA", model),
@@ -58,7 +57,7 @@ fit.ls$alert_L <- fit.ls$alert |>
          model=if_else(grepl("^d", model),
                        str_split_fixed(str_remove(model, "PCA."), "\\.", 2)[,2],
                        str_remove(model, "PCA."))) |>
-  mutate(model=factor(model, levels=mod_i$levels, labels=mod_i$labels),
+  mutate(#model=factor(model, levels=mod_i$levels, labels=mod_i$labels),
          covSet=factor(covSet, levels=c(paste0("d", 1:16), "ens", "ensLogitMn", "ensGLM", "ensGLM2", "ensHB",
                                         "null4wk", "nullAuto", "nullGrand", "perfect"))) |>
   left_join(d_i |> select(-f)) |>
@@ -68,8 +67,7 @@ fit.ls$alert_L <- fit.ls$alert |>
          y=factor(y, levels=y_resp))
 
 oos.ls$alert_L <- oos.ls$alert |>
-  mutate(perfect_A1=if_else(alert=="A0", 1e-3, 1-1e-3),
-         nullAuto_A1=if_else(prevAlert=="A0", 1e-3, 1-1e-3)) |>
+  mutate(perfect_A1=if_else(alert=="A0", 1e-3, 1-1e-3)) |>
   pivot_longer(ends_with("_A1"), names_to="run", values_to="prA1") |>
   mutate(model=str_split_fixed(run, "_", 3)[,1],
          PCA=grepl("PCA", model),
@@ -79,12 +77,12 @@ oos.ls$alert_L <- oos.ls$alert |>
                        str_remove(model, "PCA."))) |>
   mutate(model=factor(model, levels=mod_i$levels, labels=mod_i$labels),
          covSet=factor(covSet, levels=c(paste0("d", 1:16), "ens", "ensLogitMn", "ensGLM", "ensGLM2", "ensHB",
-                                        "null4wk", "nullAuto", "nullGrand", "perfect"))) |>
-  left_join(d_i |> select(-f)) |>
-  mutate(covSet=factor(covSet, levels=c(levels(d_i$covSet_reorder),
-                                        "ens", "ensLogitMn", "ensGLM", "ensGLM2", "ensHB",
-                                        "null4wk", "nullAuto", "nullGrand", "perfect")),
-         y=factor(y, levels=y_resp))
+                                        "null4wk", "nullAuto", "nullGrand", "perfect")))# |>
+  # left_join(d_i |> select(-f)) |>
+  # mutate(covSet=factor(covSet, levels=c(levels(d_i$covSet_reorder),
+  #                                       "ens", "ensLogitMn", "ensGLM", "ensGLM2", "ensHB",
+  #                                       "null4wk", "nullAuto", "nullGrand", "perfect")),
+  #        y=factor(y, levels=y_resp))
 
 # spatTime.ls$alert_L <- spatTime.ls$alert |>
 #   select(-starts_with("d")) |>
@@ -204,25 +202,25 @@ rank.df <- oos.ls$alert_L |>
               mutate(rank=min_rank(desc(.estimate)),
                      .metric="ROC-AUC") |>
               select(-.estimator)) |>
-  bind_rows(oos.ls$alert_L |> 
-              filter(!grepl("perfect|auto", model)) |>
-              group_by(y, model, PCA, covSet) |>
-              mcc(truth=alert, estimate=predMCC) |>
-              mutate(.estimate=if_else(is.na(.estimate), 0, .estimate)) |>
-              group_by(y) |>
-              mutate(rank=min_rank(desc(.estimate)),
-                     .metric="MCC") |>
-              select(-.estimator)) |>
-  bind_rows(oos.ls$alert_L |>
-              filter(!grepl("perfect|auto", model)) |>
-              select(y, covSet, PCA, model, obsid, alert, prA1) %>%
-              filter(!is.na(prA1)) |>
-              pivot_wider(names_from="alert", values_from="prA1") |>
-              group_by(y, model, PCA, covSet) |>
-              summarise(.estimate=schoenr(density(A0, na.rm=T), density(A1, na.rm=T))) |>
-              group_by(y) |>
-              mutate(rank=min_rank(.estimate),
-                     .metric="Schoener's D")) |>
+  # bind_rows(oos.ls$alert_L |> 
+  #             filter(!grepl("perfect|auto", model)) |>
+  #             group_by(y, model, PCA, covSet) |>
+  #             mcc(truth=alert, estimate=predMCC) |>
+  #             mutate(.estimate=if_else(is.na(.estimate), 0, .estimate)) |>
+  #             group_by(y) |>
+  #             mutate(rank=min_rank(desc(.estimate)),
+  #                    .metric="MCC") |>
+  #             select(-.estimator)) |>
+  # bind_rows(oos.ls$alert_L |>
+  #             filter(!grepl("perfect|auto", model)) |>
+  #             select(y, covSet, PCA, model, obsid, alert, prA1) %>%
+  #             filter(!is.na(prA1)) |>
+  #             pivot_wider(names_from="alert", values_from="prA1") |>
+  #             group_by(y, model, PCA, covSet) |>
+  #             summarise(.estimate=schoenr(density(A0, na.rm=T), density(A1, na.rm=T))) |>
+  #             group_by(y) |>
+  #             mutate(rank=min_rank(.estimate),
+  #                    .metric="Schoener's D")) |>
   # bind_rows(oos.ls$alert_L |>
   #             filter(!grepl("perfect|auto", model)) |>
   #             group_by(y, model, PCA, covSet) |>

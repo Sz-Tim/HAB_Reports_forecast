@@ -1,11 +1,12 @@
-# HAB Forecast
+# Project: HAB Reports Forecast
 # www.habreports.org
 # Tim Szewczyk
-# Initial dataset compilation
+# tim.szewczyk@sams.ac.uk
+# Initial dataset compilation: FFS and CEFAS
 
+# TODO: MERGE WITH 1b*.R
 
 # setup -------------------------------------------------------------------
-
 library(terra)
 library(gdistance)
 library(tidyverse)
@@ -16,7 +17,7 @@ library(sf)
 library(jsonlite)
 library(WeStCOMS)
 library(sevcheck)
-walk(dir("code/fn", ".R", full.names=T), source)
+library(habforecastr)
 
 nDays_avg <- 14
 dateStart <- "2015-01-01"
@@ -30,6 +31,7 @@ urls <- c(fsa="fsa_counts",
           ssf="ssf_counts",
           ssf_sites="ssf_sites") |>
   map(~glue("http://www.habreports.org/dbdatastuff/{.x}"))
+saveRDS(urls, "data/habreports_urls.rds")
 
 hab_i <- read_csv("data/i_hab.csv")
 tox_i <- read_csv("data/i_tox.csv")
