@@ -17,18 +17,17 @@ for(i in 1:nrow(i.df)) {
     dates <- c(pmax(ymd("2021-09-01"), dateRng[1]-nDays_buffer),
                pmin(today()+3, dateRng[2]+nDays_buffer))
   } else {
-    dates <- c(pmax(ymd("1993-01-01"), dateRng[1]-nDays_buffer),
-               pmin(ymd("2024-01-01"), dateRng[2]+nDays_buffer))
+    dates <- c(pmin(ymd("2024-06-30"), pmax(ymd("1993-01-01"), dateRng[1]-nDays_buffer)),
+               pmin(ymd("2024-06-30"), dateRng[2]+nDays_buffer))
   }
   # download nc files
   command <- paste("copernicusmarine subset -i", i.df$ID_toolbox[i],
                    "-x", bbox$xmin, "-X", bbox$xmax,
                    "-y", bbox$ymin, "-Y", bbox$ymax,
-                   "-z", 0, "-Z", 0,
+                   "-z", 0, "-Z", 1,
                    "-t", dates[1], "-T", dates[2],
                    " -v", i.df$var[i],
-                   "-o temp", "-f", i.df$fname[i],
-                   "--force-download --overwrite-metadata-cache")
+                   "-o temp", "-f", i.df$fname[i])
   system(command, intern=TRUE)
 }
 
