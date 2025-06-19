@@ -18,7 +18,7 @@ UK_bbox <- list(xmin=-11, xmax=3, ymin=49, ymax=61.5)
 nDays_replace <- 10 # number of days to replace from previous dataset
 nDays_fcst <- 7 # number of days to forecast ahead from today
 urls <- readRDS("data/habreports_urls.rds")
-old_end <- readRDS("data/1_current/obs_end.rds") |>
+old_end <- readRDS("data/1_current_new/obs_end.rds") |>
   map(~ymd(.x)-nDays_replace)
 
 target_sets <- c("hab", "tox", "fish")[1:2]
@@ -166,7 +166,7 @@ for(i in target_sets) {
                  "fish"="fish")
   min_new_date <- min(readRDS(glue("data/2_new/{iSrc}_df.rds"))$date)
   y.df <- calc_y_features(
-    bind_rows(readRDS(glue("data/1_current/{iSrc}_df.rds")) |>
+    bind_rows(readRDS(glue("data/1_current_new/{iSrc}_df.rds")) |>
                 group_by(siteid) |>
                 filter(date < min_new_date) |>
                 slice_max(date, n=2),
@@ -268,22 +268,22 @@ for(i in target_sets) {
 
 for(i in target_sets) {
   # CMEMS points
-  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current/cmems_sitePt_{i}.rds")),
+  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current_new/cmems_sitePt_{i}.rds")),
                          readRDS(glue("data/2_new/cmems_sitePt_{i}.rds"))),
                glue("data/2_new/ydayAvg_cmems_sitePt_{i}.rds"),
                cmems_id, version, yday)
   # CMEMS buffers
-  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current/cmems_siteBufferNSEW_{i}.rds")),
+  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current_new/cmems_siteBufferNSEW_{i}.rds")),
                          readRDS(glue("data/2_new/cmems_siteBufferNSEW_{i}.rds"))),
                glue("data/2_new/ydayAvg_cmems_siteBufferNSEW_{i}.rds"),
                siteid, quadrant, yday)
   # WRF points
-  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current/wrf_sitePt_{i}.rds")),
+  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current_new/wrf_sitePt_{i}.rds")),
                          readRDS(glue("data/2_new/wrf_sitePt_{i}.rds")),),
                glue("data/2_new/ydayAvg_wrf_sitePt_{i}.rds"),
                wrf_id, version, yday)
   # WRF buffers
-  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current/wrf_siteBufferNSEW_{i}.rds")),
+  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current_new/wrf_siteBufferNSEW_{i}.rds")),
                          readRDS(glue("data/2_new/wrf_siteBufferNSEW_{i}.rds"))),
                glue("data/2_new/ydayAvg_wrf_siteBufferNSEW_{i}.rds"),
                siteid, quadrant, yday)
@@ -318,11 +318,11 @@ for(i in 1:nrow(covSet.df)) {
 # replace previous data ---------------------------------------------------
 
 # copy files from 2_new/ to 1_current/
-write_to_current <- F
+write_to_current <- T
 if(write_to_current) {
   fnames <- dir("data/2_new") |> grep("_end|compiled|yday", x=_, invert=T, value=T)
   for(f in fnames) {
-    current_df <- readRDS(glue("data/1_current/{f}"))
+    current_df <- readRDS(glue("data/1_current_new/{f}"))
     new_df <- readRDS(glue("data/2_new/{f}"))
     bind_rows(current_df |> filter(date < min(new_df$date)),
               new_df) |>
