@@ -16,7 +16,6 @@ library(jsonlite)
 UK_bbox <- list(xmin=-11, xmax=3, ymin=49, ymax=61.5)
 
 nDays_replace <- 10 # number of days to replace from previous dataset
-nDays_fcst <- 7 # number of days to forecast ahead from today
 urls <- readRDS("data/habreports_urls.rds")
 old_end <- readRDS("data/1_current_new/obs_end.rds") |>
   map(~ymd(.x)-nDays_replace)
@@ -80,40 +79,6 @@ for(i in target_sets) {
   dat.df |> 
     select(-lon, -lat) |> 
     saveRDS(glue("data/2_new/{iSrc}_df.rds"))
-  # save sites that align with actual data
-  # site_df <- dat.df |>
-  #   select(siteid, sin, lon, lat) |>
-  #   group_by(siteid) |> slice_head(n=1) |> ungroup()
-  # saveRDS(site_df, glue("data/2_new/site_{i}_df.rds"))
-  
-  # if(new_sins[[i]]) {
-  #   path.ls <- get_shortestPaths(ocean.path="data/ScotlandOcean_footprint.tif", 
-  #                                site.df=site_df, 
-  #                                site_savePath=glue("data/2_new/site_{i}_df.rds"))
-  #   write_csv(path.ls$dist.df, glue("data/2_new/site_{i}_pairwise_distances.csv"))
-  #   path.ls <- list(dist.df=read_csv(glue("data/2_new/site_{i}_pairwise_distances.csv")))
-  #   path.ls$dist.df |>
-  #     bind_rows(path.ls$dist.df |> 
-  #                 rename(destinations=origins, origins=destinations)) |>
-  #     bind_rows(tibble(origins=1:nrow(site_df), 
-  #                      destinations=1:nrow(site_df), 
-  #                      distances=0)) |>
-  #     filter(distances < 100e3) |> 
-  #     dplyr::select(-distances) |> 
-  #     group_by(origins) |> 
-  #     nest(data=destinations) |>
-  #     mutate(dest_c=c(data[[1]])) |> 
-  #     dplyr::select(-data) |>
-  #     ungroup() |>
-  #     saveRDS(glue("data/2_new/site_{i}_neighbors_100km.rds"))
-  #   site_df <- readRDS(glue("data/2_new/site_{i}_df.rds"))
-  #   site_df <- site_df |>
-  #     get_fetch("data/log10_eu200m1a.tif") |>
-  #     get_openBearing("data/northAtlantic_footprint.gpkg", buffer=200e3)
-  #   saveRDS(site_df, glue("data/2_new/site_{i}_df.rds"))
-  # } else {
-    # file.copy(glue("data/site_{i}_neighbors_100km.rds"), glue("data/2_new/site_{i}_neighbors_100km.rds"))
-  # }
 }
 
 
@@ -149,9 +114,18 @@ wrf.dir <- ifelse(.Platform$OS.type=="unix",
                   "https",#"/media/archiver/common/sa01da-work/WRF/Archive/",
                   "E:/hydroOut/WRF/Archive/")
 wrf.out <- "data/00_env/wrf/"
+
 get_WRF(wrf.dir=wrf.dir, nDays_buffer=nDays_replace, 
-        dateRng=c(old_end$cmems, today()), 
+        dateRng=c(old_end$wrf, today()), 
         out.dir=wrf.out)
+
+# use forecast when hindcast is unavailable
+latest_wrf <- dir(wrf.out, "wrf_.*_d01.rds") |> sort() |> last() |> 
+  str_sub(5, 14) |> ymd()
+get_WRF(wrf.dir=wrf.dir, nDays_buffer=0, 
+        dateRng=c(latest_wrf, today()+nDays_replace), 
+        out.dir=wrf.out, forecast=T)
+
 wrf.df <- aggregate_WRF(wrf.out, refreshStart=old_end$wrf)
 saveRDS(wrf.df, glue("data/2_new/wrf_end_{max(wrf.df$date)}.rds"))
 
