@@ -15,7 +15,7 @@ library(jsonlite)
 
 UK_bbox <- list(xmin=-11, xmax=3, ymin=49, ymax=61.5)
 
-nDays_replace <- 10 # number of days to replace from previous dataset
+nDays_replace <- 14 # number of days to replace from previous dataset
 urls <- readRDS("data/habreports_urls.rds")
 old_end <- readRDS("data/1_current_new/obs_end.rds") |>
   map(~ymd(.x)-nDays_replace)
@@ -89,8 +89,8 @@ for(i in target_sets) {
 cmems_i <- read_csv("data/cmems_i.csv")
 get_CMEMS(userid=NULL, pw=NULL, 
           i.df=cmems_i, bbox=UK_bbox, 
-          nDays_buffer=nDays_replace, 
-          dateRng=c(old_end$cmems, today()), 
+          nDays_buffer=0, 
+          dateRng=c(old_end$cmems, today()+nDays_replace), 
           out.dir="data/00_env/cmems/",
           toolbox=TRUE)
 
@@ -115,7 +115,7 @@ wrf.dir <- ifelse(.Platform$OS.type=="unix",
                   "E:/hydroOut/WRF/Archive/")
 wrf.out <- "data/00_env/wrf/"
 
-get_WRF(wrf.dir=wrf.dir, nDays_buffer=nDays_replace, 
+get_WRF(wrf.dir=wrf.dir, nDays_buffer=0, 
         dateRng=c(old_end$wrf, today()), 
         out.dir=wrf.out)
 
@@ -141,9 +141,9 @@ for(i in target_sets) {
   min_new_date <- min(readRDS(glue("data/2_new/{iSrc}_df.rds"))$date)
   y.df <- calc_y_features(
     bind_rows(readRDS(glue("data/1_current_new/{iSrc}_df.rds")) |>
-                group_by(siteid) |>
                 filter(date < min_new_date) |>
-                slice_max(date, n=2),
+                group_by(siteid) |>
+                slice_max(date, n=3),
               readRDS(glue("data/2_new/{iSrc}_df.rds"))), 
     targ_i[[i]], targ_tl[[i]],
     readRDS(glue("data/site_{i}_neighbors_100km.rds"))
