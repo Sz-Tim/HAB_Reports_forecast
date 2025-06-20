@@ -14,16 +14,21 @@ library(rprojroot)
 library(sf)
 library(cowplot)
 library(ggdist)
+library(beeswarm)
+library(plotly)
+library(leaflet)
 library(scales)
 theme_set(theme_classic())
 
 dirs <- list(proj=find_rstudio_root_file(),
              shiny=whereami::thisfile() |> dirname())
+source(paste0(dirs$shiny, "/fn.R"))
 
 scotland_sf <- st_read(paste0(dirs$proj, "/data/northAtlantic_footprint.gpkg"), 
                        quiet=TRUE) |>
   st_crop(xmin=45000, xmax=490000, 
           ymin=500000, ymax=1230000)
+scot_bbox <- st_bbox(scotland_sf)
 
 # monitoring targets
 target_sets <- c("hab", "tox", "fish")[1:2]
@@ -32,7 +37,41 @@ targ_i <- map_dfr(target_sets,
                   ~read_csv(paste0(dirs$proj, "/data/i_", .x, ".csv"), show_col_types=F) |>
                     mutate(type=.x)) |>
   filter(! abbr %in% targ_exclude) |>
-  arrange(type, abbr)
+  arrange(type, abbr) |>
+  mutate(plotGroups=c(1, 2, 4, 3, 3, 3, 3, 2, 1)) |>
+  mutate(targ_ordered=factor(abbr,
+                             levels=c("Alsp", "PSP", "Disp", "DSP",
+                                      "Pssp", "Psde", "Psse", "ASP",  
+                                      "Kami"),
+                             labels=c("Alexandrium", "PSTs",
+                                      "Dinophysis", "DSTs (OA/DTXs/PTXs)",
+                                      paste("Pseudo-nitzschia", c("spp.", "del.", "ser.")), "DA", 
+                                      "Karenia mikimotoi"))) |>
+  arrange(targ_ordered) |>
+  mutate(col=c("#a6cee3", "#1f78b4", "#b2df8a", "#33a02c",
+               "#fb9a99", "#e31a1c", "#fdbf6f", "#ff7f00",
+               "#cab2d6"),
+         fig_short=factor(fig_short, levels=unique(fig_short)))
+
+tl_i <- map_dfr(target_sets, 
+                  ~read_csv(paste0(dirs$proj, "/data/tl_thresholds_", .x, ".csv"), show_col_types=F) |>
+                    mutate(type=.x)) |>
+  filter(! abbr %in% targ_exclude) |>
+  arrange(type, abbr) |>
+  mutate(targ_ordered=factor(abbr,
+                             levels=c("Alsp", "PSP", "Disp", "DSP",
+                                      "Pssp", "Psde", "Psse", "ASP",  
+                                      "Kami"),
+                             labels=c("Alexandrium", "PSTs",
+                                      "Dinophysis", "DSTs (OA/DTXs/PTXs)",
+                                      paste("Pseudo-nitzschia", c("spp.", "del.", "ser.")), "DA", 
+                                      "Karenia mikimotoi"))) |>
+  arrange(targ_ordered) |>
+  select(abbr, targ_ordered, tl, units, alert, min_ge) |>
+  filter(!is.na(tl) & tl != "TL0") |>
+  mutate(min_lnN=log1p(min_ge)) |>
+  group_by(abbr, tl) |>
+  slice_head(n=1)
 
 # monitoring locations
 site_i <- map_dfr(target_sets,
@@ -40,70 +79,36 @@ site_i <- map_dfr(target_sets,
                     mutate(type=.x))
 site_sf <- site_i |>
   st_as_sf(coords=c("lon", "lat"), crs=27700, remove=FALSE)
+site_wgs <- site_sf |>
+  st_transform(4326) |>
+  sevcheck::add_lonlat(drop_geom=T) |>
+  group_by(sin) |>
+  arrange(type) |>
+  slice_head(n=1) |>
+  ungroup()
 
 
 # output and validation ---------------------------------------------------
 
 # point-wise predictions
-fit_df <- readRDS(paste0(dirs$proj, "/out/clean/out_fit_ens.rds"))
-oos_df <- readRDS(paste0(dirs$proj, "/out/clean/out_oos_ens.rds"))
-all_df <- bind_rows(fit_df, oos_df) |>
-  group_by(y, siteid) |>
-  mutate(N=n(), nYrs=n_distinct(year(date))) |>
-  ungroup() |> filter(N >= 30 & nYrs > 1) |>
-  arrange(y, siteid, date) |>
-  select(y, siteid, date, obsid, prevAlert, alert, prA1) |>
-  mutate(week=floor_date(date, unit="week")) |>
-  left_join(targ_i |> select(abbr, type), by=join_by(y==abbr)) |>
-  left_join(site_i |> select(siteid, sin, lon, lat, type), by=join_by(type, siteid))
-
-obs_df <- bind_rows(
-  readRDS(paste0(dirs$proj, "/data/0_init/old/data_hab_all.rds")) |>
-    mutate(type="hab"),
-  readRDS(paste0(dirs$proj, "/data/0_init/old/data_tox_all.rds")) |>
-    mutate(type="tox")
-) |>
-  select(type, y, obsid, sin, date, N, lnN, tl, alert) |>
-  filter(sin %in% unique(all_df$sin)) |>
-  # inner_join(all_df |> select(y, obsid), by=join_by(y, obsid)) |>
-  complete(type, y, sin, date, fill=list(N=0, lnN=0, tl="TL0", alert="A0")) |>
-  mutate(week=floor_date(date, unit="week")) |>
-  group_by(type, y, sin, week) |>
-  summarise(lnN=mean(lnN)) |>
-  group_by(y) |>
-  mutate(lnN_rel=lnN/max(lnN)) |>
-  ungroup()
-
+all_df <- readRDS(paste0(dirs$proj, "/out/clean/all_df.rds"))
+# observations
+obs_df <- readRDS(paste0(dirs$proj, "/out/clean/obs_df.rds"))
 # skill scores: Overall
-validation_df <- readRDS(paste0(dirs$proj, "/out/clean/rank_oos.rds")) |>
-  filter(model %in% c("Null[0]", "Null[Date]",
-                      "HB", "Ridge", "MARS", "NN", "RF", "XGB", 
-                      "Ensemble2")) |> 
-  filter(.metric %in% c("MCC", "PR-AUC", "R2-VZ_trunc", "ROC-AUC", "Schoener's D")) |>
-  mutate(.metric=if_else(.metric=="R2-VZ_trunc", "R2-VZ", .metric)) |>
-  arrange(y, model, covSet, PCA) |>
-  group_by(y, .metric) |>
-  mutate(null_to_perfect=case_when(.metric=="Schoener's D" ~ first(.estimate),
-                                   .default=1-first(.estimate)),
-         m_to_null=case_when(.metric=="Schoener's D" ~ first(.estimate) - .estimate,
-                             .default=.estimate - first(.estimate)),
-         skill=m_to_null/null_to_perfect) |>
-  ungroup() |>
-  mutate(modType=case_when(model=="Null[0]" ~ model,
-                           model=="Null[Date]" ~ model,
-                           model=="Ensemble2" ~ "Ensemble",
-                           .default="Constituent"),
-         modType=factor(modType, levels=c("Null[0]", "Null[Date]", "Constituent", "Ensemble")),
-         .metric=factor(.metric, 
-                        levels=c("ROC-AUC", "PR-AUC", "MCC", "R2-VZ", "Schoener's D"),
-                        labels=c("AUC['ROC']", "AUC['PR']", "MCC", "R['VZ']^2", "D['Overlap']"))) |>
-  group_by(y, .metric, modType) |>
-  mutate(modNum=row_number()) |>
-  ungroup() |>
-  select(y, modType, modNum, .metric, .estimate, skill)
-
+validation_df <- readRDS(paste0(dirs$proj, "/out/clean/validation_df.rds"))
 # skill scores: By site
+validation_sin_df <- readRDS(paste0(dirs$proj, "/out/clean/validation_sin_df.rds"))
+# skill scores: By month
+validation_month_df <- readRDS(paste0(dirs$proj, "/out/clean/validation_month_df.rds"))
+# list of SINs by year for plotting
+sin_yr <- obs_df |>
+  mutate(year=year(week)) |>
+  select(type, year, sin) |>
+  group_by(year, type, sin) |>
+  slice_head(n=1) |>
+  group_by(year) |>
+  group_split() 
+sin_yr <- imap(unique(year(obs_df$week)),
+               ~unique(filter(obs_df, year(week)==.x)$sin))
 
-
-# skill scores: By date
 
