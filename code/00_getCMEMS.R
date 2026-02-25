@@ -18,7 +18,7 @@ for(i in 1:nrow(i.df)) {
                pmin(today()+3, dateRng[2]+nDays_buffer))
   } else {
     dates <- c(pmin(ymd("2025-11-30"), pmax(ymd("1993-01-01"), dateRng[1]-nDays_buffer)),
-               pmin(ymd("2025-1-30"), dateRng[2]+nDays_buffer))
+               pmin(ymd("2025-11-30"), dateRng[2]+nDays_buffer))
   }
   # download nc files
   command <- paste("copernicusmarine subset -i", i.df$ID_toolbox[i],
