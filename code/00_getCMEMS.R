@@ -17,8 +17,8 @@ for(i in 1:nrow(i.df)) {
     dates <- c(pmax(ymd("2021-09-01"), dateRng[1]-nDays_buffer),
                pmin(today()+3, dateRng[2]+nDays_buffer))
   } else {
-    dates <- c(pmin(ymd("2024-06-30"), pmax(ymd("1993-01-01"), dateRng[1]-nDays_buffer)),
-               pmin(ymd("2024-06-30"), dateRng[2]+nDays_buffer))
+    dates <- c(pmin(ymd("2025-11-30"), pmax(ymd("1993-01-01"), dateRng[1]-nDays_buffer)),
+               pmin(ymd("2025-1-30"), dateRng[2]+nDays_buffer))
   }
   # download nc files
   command <- paste("copernicusmarine subset -i", i.df$ID_toolbox[i],
@@ -42,10 +42,18 @@ for(i in unique(i.df$var)) {
       project(nc_F)
     nc <- mergeTime(sds(nc_R, nc_F), mean) 
   }
-  nc_LU <- crds(nc) |> as_tibble() |>
-    rename(lon=x, lat=y) |>
-    mutate(cmems_id=row_number())
-  saveRDS(nc_LU, glue("{out.dir}/coords_{i}.rds"))
+  if(!is.null(init_LU)) {
+    nc_LU <- inner_join(
+      crds(nc) |> as_tibble() |> rename(lon=x, lat=y),
+      init_LU,
+      by=join_by(lon, lat)
+    )
+  } else {
+    nc_LU <- crds(nc) |> as_tibble() |>
+      rename(lon=x, lat=y) |>
+      mutate(cmems_id=row_number())
+    saveRDS(nc_LU, glue("{out.dir}/coords_{i}.rds"))
+  }
   nc_df <- nc_LU |> select(cmems_id) |>
     bind_cols(values(nc, dataframe=T, na.rm=T) |>
                 setNames(time(nc))) |>
