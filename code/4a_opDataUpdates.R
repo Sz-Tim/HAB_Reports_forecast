@@ -10,6 +10,7 @@
 library(tidyverse)
 library(habforecastr)
 library(glue)
+library(future)
 library(sf)
 library(jsonlite)
 
@@ -17,7 +18,7 @@ UK_bbox <- list(xmin=-11, xmax=3, ymin=49, ymax=61.5)
 
 nDays_replace <- 14 # number of days to replace from previous dataset
 urls <- readRDS("data/habreports_urls.rds")
-old_end <- readRDS("data/1_current_new/obs_end.rds") |>
+old_end <- readRDS("data/1_current/obs_end.rds") |>
   map(~ymd(.x)-nDays_replace)
 
 target_sets <- c("hab", "tox", "fish")[1:2]
@@ -86,16 +87,19 @@ for(i in target_sets) {
 
 # CMEMS -------------------------------------------------------------------
 
-cmems_i <- read_csv("data/cmems_i.csv")
+cmems_i <- read_csv("data/cmems_i.csv") |> 
+  filter(source=="AnalysisForecast") |>
+  mutate(ID_toolbox=ID) # Access methods keep changing!
 get_CMEMS(userid=NULL, pw=NULL, 
           i.df=cmems_i, bbox=UK_bbox, 
           nDays_buffer=0, 
-          dateRng=c(old_end$cmems, today()+nDays_replace), 
-          out.dir="data/00_env/cmems/",
-          toolbox=TRUE)
+          dateRng=c(old_end$cmems-nDays_replace, today()+nDays_replace), 
+          out.dir="data/00_env/test/",
+          toolbox=TRUE,
+          init_LU=readRDS(dir("data/00_env/cmems/", "coords.*rds", full.names=T)[1]))
 
-cmems_LU <- readRDS(dir("data/00_env/cmems/", "coords.*rds", full.names=T)[1]) 
-cmems.f <- dir("data/00_env/cmems", "cmems.*.rds", full.names=T)
+# cmems_LU <- readRDS(dir("data/00_env/cmems/", "coords.*rds", full.names=T)[1]) 
+cmems.f <- dir("data/00_env/test", "cmems.*.rds", full.names=T)
 cmems.ls <- map(cmems.f, ~readRDS(.x)) 
 cmems.df <- cmems.ls[[1]] |> mutate(chl=log1p(chl))
 cmems.df$no3 <- log1p(cmems.ls[[2]]$no3)
@@ -105,7 +109,7 @@ cmems.df$phyc <- log1p(cmems.ls[[5]]$phyc)
 cmems.df$po4 <- log1p(cmems.ls[[6]]$po4)
 rm(cmems.ls)
 saveRDS(cmems.df, glue("data/2_new/cmems_end_{max(cmems.df$date)}.rds"))
-
+rm(cmems.df); gc()
 
 
 # WRF ---------------------------------------------------------------------
@@ -126,43 +130,104 @@ get_WRF(wrf.dir=wrf.dir, nDays_buffer=0,
         dateRng=c(latest_wrf, today()+nDays_replace), 
         out.dir=wrf.out, forecast=T)
 
-wrf.df <- aggregate_WRF(wrf.out, refreshStart=old_end$wrf)
+# TODO: Still designed for initial preparation
+# Need to interpolate within each day instead - currently fills in using
+# climatology by cell
+wrf.df <- aggregate_WRF(wrf.out, refreshStart=old_end$wrf-nDays_replace, ncores=20)
 saveRDS(wrf.df, glue("data/2_new/wrf_end_{max(wrf.df$date)}.rds"))
 
 
 
 # autoregressive terms ----------------------------------------------------
 
+max_env_date <- min(
+  ymd(str_sub(last(dirf("data/2_new/", "cmems_end_.*rds")), -14, -5)),
+  ymd(str_sub(last(dirf("data/2_new/", "wrf_end_.*rds")), -14, -5))
+) 
 for(i in target_sets) {
   iSrc <- switch(i, 
                  "hab"="fsa",
                  "tox"="cefas",
                  "fish"="fish")
-  min_new_date <- min(readRDS(glue("data/2_new/{iSrc}_df.rds"))$date)
-  y.df <- calc_y_features(
-    bind_rows(readRDS(glue("data/1_current_new/{iSrc}_df.rds")) |>
-                filter(date < min_new_date) |>
-                group_by(siteid) |>
-                slice_max(date, n=3),
-              readRDS(glue("data/2_new/{iSrc}_df.rds"))), 
-    targ_i[[i]], targ_tl[[i]],
-    readRDS(glue("data/site_{i}_neighbors_100km.rds"))
-  )
-  saveRDS(y.df, glue("data/2_new/{i}_obs.rds"))
+  new_obs_df <- readRDS(glue("data/2_new/{iSrc}_df.rds"))
+  min_new_date <- if_else(nrow(new_obs_df)>0, min(new_obs_df$date), today())
+  if(file.exists("out/1_forecast/compiled/fcst_history_df.rds")) {
+    last_obsid <- (readRDS("out/1_forecast/compiled/fcst_history_df.rds") |>
+                     filter(y %in% targ_i[[i]]$abbr) |>
+                     slice_max(obsid))$obsid[1]
+  } else {
+    last_obsid <- 1e6
+  }
+  combined_obs_df <- bind_rows(
+    readRDS(glue("data/1_current/{iSrc}_df.rds")) |>
+      # include previous year for prevYr calculations -> easy place to make more efficient...
+      filter(between(date, ymd(paste(year(min_new_date)-1, "-01-01")), min_new_date)),
+    new_obs_df)
+  # This is hacky and repetitive but ok for now...
+  days_to_forecast <- seq(today(), max_env_date, by=1)
+  y_ls <- vector("list", length(days_to_forecast))
+  for(j in seq_along(days_to_forecast)) {
+    forecastDays_df <- combined_obs_df |>
+      group_by(siteid) |>
+      slice_head(n=1) |>
+      ungroup() |>
+      select(sin, site, area, farm_species, siteid) |>
+      mutate(date=days_to_forecast[j]) |> 
+      mutate(obsid=last_obsid + row_number())
+    y_features_df <- calc_y_features(
+      bind_rows(combined_obs_df, forecastDays_df), 
+      targ_i[[i]], targ_tl[[i]],
+      readRDS(glue("data/site_{i}_neighbors_100km.rds")),
+      forecastStart=days_to_forecast[j]
+    )
+    if(j == 1) {
+      y_ls[[j]] <- y_features_df |>  filter(date >= min_new_date) 
+    } else {
+      y_ls[[j]] <- y_features_df |>  filter(date >= first(days_to_forecast))
+    }
+    last_obsid <- max(forecastDays_df$obsid)
+  }
+  
+  saveRDS(bind_rows(y_ls), glue("data/2_new/{i}_obs.rds"))
 }
 
 
 
 # HAB status for toxins ---------------------------------------------------
 
+# TODO: This will fail if there is no new toxin data -- add ifelse like above
 # Calculate average HAB densities surrounding each cefas site
+min_new_date_tox <- min(readRDS("data/2_new/cefas_df.rds")$date)
+hab.df <- bind_rows(
+  readRDS("data/1_current/hab_obs.rds") |>
+    filter(date > min_new_date_tox - 7*12),
+  readRDS("data/2_new/hab_obs.rds")
+) |>
+  group_by(date, siteid, y) |>
+  summarise(across(where(is.numeric), mean, na.rm=T), 
+            across(where(is.factor) | where(is.character), first)) |>
+  ungroup()
+tox.df <- bind_rows(
+  readRDS(glue("data/1_current/cefas_df.rds")) |>
+    filter(between(date, min_new_date_tox - 7*8, min_new_date_tox)) |>
+    group_by(siteid) |>
+    slice_max(date, n=3) |>
+    ungroup() |>
+    select(obsid, siteid, date),
+  readRDS("data/2_new/tox_obs.rds") |> 
+    filter(date >= min_new_date_tox) |> 
+    group_by(obsid) |>
+    slice_head(n=1) |>
+    ungroup() |>
+    select(obsid, siteid, date)
+  )
 habAvg_tox.df <- summarise_hab_states(
   site_tox.sf=st_read("data/site_tox_sf.gpkg") |>
     group_by(siteid) |> summarise(), 
   site_hab.sf=readRDS("data/site_hab_df.rds") |> 
     select(siteid, lon, lat) |> st_as_sf(coords=c("lon", "lat"), crs=27700), 
-  tox.obs=readRDS("data/2_new/cefas_df.rds") |> select(obsid, siteid, date), 
-  hab.df=readRDS("data/2_new/hab_obs.rds")
+  tox.obs=tox.df, 
+  hab.df=hab.df
 )
 saveRDS(habAvg_tox.df, "data/2_new/tox_habAvg.rds")
 
@@ -181,27 +246,34 @@ for(i in target_sets) {
   # filter cmems.df to dates needed
   dateMin_i <- min(readRDS(glue("data/2_new/{i}_obs.rds"))$date)
   cmems.df_i <- cmems.df |> filter(date >= (dateMin_i - 365))
-  # find site point locations
-  site_df <- readRDS(glue("data/site_{i}_df.rds")) |> select(-any_of("cmems_id"))
-  site_df <- site_df |> find_nearest_feature_id(cmems.sf, "cmems_id")
-  saveRDS(site_df, glue("data/site_{i}_df.rds"))
+  site_df <- readRDS(glue("data/site_{i}_df.rds"))
+  # find site point locations -- SHOULD BE UNNECESSARY!!
+  # site_df <- readRDS(glue("data/site_{i}_df.rds")) |> select(-any_of("cmems_id"))
+  # site_df <- site_df |> find_nearest_feature_id(cmems.sf, "cmems_id")
+  # saveRDS(site_df, glue("data/site_{i}_df_CMEMS_4a.rds"))
   # extract point environment
   cmems.site <- extract_env_pts(site_df, cmems_i$all, 
                                 cmems.df_i |> mutate(version=1), 
-                                cmems_id, "cmems_id")
+                                cmems_id, "cmems_id") |>
+    drop_na() # removes first dates with no Wk, delta 
   saveRDS(cmems.site, glue("data/2_new/cmems_sitePt_{i}.rds"))
   # find site buffer locations
   site.buffer <- st_read(glue("data/site_{i}_sf.gpkg")) |>
     find_buffer_intersect_ids(cmems.sf, "cmems_id")
   # extract buffer environment
   cmems.buffer <- extract_env_buffers(site.buffer, cmems_i, 
-                                      cmems.df_i, "cmems_id")
+                                      cmems.df_i, "cmems_id") |>
+    drop_na() # removes first dates with no Wk, delta 
   saveRDS(cmems.buffer, glue("data/2_new/cmems_siteBufferNSEW_{i}.rds"))
 }
 
 
 
 # . WRF -------------------------------------------------------------------
+# TODO: Is this currently accurate? Better to:
+# 1) convert to interpolated rasters
+# 2) apply a land mask
+# 3) calculate zonal means
 wrf_i <- list(all=c("U", "V", "UV", "Shortwave", "Precip", "sst"),
               sea=c("U", "V", "UV", "Shortwave", "Precip"),
               land=c("sst"))
@@ -216,12 +288,8 @@ for(i in target_sets) {
   # filter wrf.df to dates needed
   dateMin_i <- min(readRDS(glue("data/2_new/{i}_obs.rds"))$date)
   wrf.df_i <- wrf.df |> filter(date >= (dateMin_i - 365))
-  # find site point locations
-  site_df <- readRDS(glue("data/site_{i}_df.rds")) |> select(-starts_with("wrf_id"))
-  site_df <- map(wrf_versions, ~site_df |> find_nearest_feature_id(.x, "wrf_id")) |>
-    reduce(full_join, by=names(site_df), suffix=paste0(".", seq_along(wrf_versions)))
-  saveRDS(site_df, glue("data/site_{i}_df.rds"))
   # extract point environment
+  site_df <- readRDS(glue("data/site_{i}_df.rds"))
   site.versions <- grep("wrf_id", names(site_df), value=T)
   wrf.site <- extract_env_pts(site_df, wrf_i$all, wrf.df_i, wrf_id, site.versions)
   saveRDS(wrf.site, glue("data/2_new/wrf_sitePt_{i}.rds"))
@@ -242,23 +310,31 @@ for(i in target_sets) {
 
 for(i in target_sets) {
   # CMEMS points
-  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current_new/cmems_sitePt_{i}.rds")),
-                         readRDS(glue("data/2_new/cmems_sitePt_{i}.rds"))),
+  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current/cmems_sitePt_{i}.rds")) |>
+                           drop_na(),
+                         readRDS(glue("data/2_new/cmems_sitePt_{i}.rds")) |>
+                           drop_na()),
                glue("data/2_new/ydayAvg_cmems_sitePt_{i}.rds"),
                cmems_id, version, yday)
   # CMEMS buffers
-  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current_new/cmems_siteBufferNSEW_{i}.rds")),
-                         readRDS(glue("data/2_new/cmems_siteBufferNSEW_{i}.rds"))),
+  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current/cmems_siteBufferNSEW_{i}.rds")) |>
+                           drop_na(),
+                         readRDS(glue("data/2_new/cmems_siteBufferNSEW_{i}.rds")) |>
+                           drop_na()),
                glue("data/2_new/ydayAvg_cmems_siteBufferNSEW_{i}.rds"),
                siteid, quadrant, yday)
   # WRF points
-  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current_new/wrf_sitePt_{i}.rds")),
-                         readRDS(glue("data/2_new/wrf_sitePt_{i}.rds")),),
+  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current/wrf_sitePt_{i}.rds")) |>
+                           drop_na(),
+                         readRDS(glue("data/2_new/wrf_sitePt_{i}.rds")) |>
+                           drop_na()),
                glue("data/2_new/ydayAvg_wrf_sitePt_{i}.rds"),
                wrf_id, version, yday)
   # WRF buffers
-  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current_new/wrf_siteBufferNSEW_{i}.rds")),
-                         readRDS(glue("data/2_new/wrf_siteBufferNSEW_{i}.rds"))),
+  calc_ydayAvg(bind_rows(readRDS(glue("data/1_current/wrf_siteBufferNSEW_{i}.rds")) |>
+                           drop_na(),
+                         readRDS(glue("data/2_new/wrf_siteBufferNSEW_{i}.rds")) |>
+                           drop_na()),
                glue("data/2_new/ydayAvg_wrf_siteBufferNSEW_{i}.rds"),
                siteid, quadrant, yday)
 }
@@ -272,16 +348,21 @@ dat.ls <- map(target_sets, ~load_datasets("2_new", .x, "2_new")) |>
 iwalk(dat.ls, ~saveRDS(.x$compiled, glue("data/2_new/data_{.y}_all.rds")))
 
 # record max date for each dataset
-obs_end <- map(dat.ls, ~max(.x$obs$date)) |>
-  c(list(cmems=max(ymd(str_sub(dir("data/2_new", "cmems_end"), 11, 20))),
-         wrf=max(ymd(str_sub(dir("data/2_new", "wrf_end"), 9, 18)))))
+obs_end <- list(
+  hab=max(dat.ls$hab$fsa$date),
+  tox=max(dat.ls$tox$cefas$date),
+  habF=max(dat.ls$hab$obs$date),
+  toxF=max(dat.ls$tox$obs$date),
+  cmems=max(ymd(str_sub(dir("data/2_new", "cmems_end"), -14, -5))),
+  wrf=max(ymd(str_sub(dir("data/2_new", "wrf_end"), -14, -5)))
+)
 saveRDS(obs_end, "data/2_new/obs_end.rds")
 
 
 
 # apply recipe ------------------------------------------------------------
 
-covSet.df <- read_csv("data/covSet_hab_tox.csv")
+covSet.df <- read_csv("data/covSet_df.csv")
 for(i in 1:nrow(covSet.df)) {
   make_forecast_data(imap_dfr(targ_i, ~.x |> mutate(type=.y)), 
                      covSet.df[i,], "data/2_new/")
@@ -296,14 +377,17 @@ write_to_current <- T
 if(write_to_current) {
   fnames <- dir("data/2_new") |> grep("_end|compiled|yday", x=_, invert=T, value=T)
   for(f in fnames) {
-    current_df <- readRDS(glue("data/1_current_new/{f}"))
+    current_df <- readRDS(glue("data/1_current/{f}"))
     new_df <- readRDS(glue("data/2_new/{f}"))
+    if(any(grepl(".x$", c(names(current_df), names(new_df))))) {
+      cat(f, " has issues :( \n")
+    }
     bind_rows(current_df |> filter(date < min(new_df$date)),
               new_df) |>
-      saveRDS(glue("data/1_current_new/{f}"))
+      saveRDS(glue("data/1_current/{f}"))
   }
   fnames <- dir("data/2_new") |> grep("obs_end|yday", x=_, value=T)
   for(f in fnames) {
-    file.copy(glue("data/2_new/{f}"), glue("data/1_current_new/{f}"), overwrite=T) 
+    file.copy(glue("data/2_new/{f}"), glue("data/1_current/{f}"), overwrite=T)
   }
 }

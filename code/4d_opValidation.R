@@ -16,21 +16,21 @@ library(yardstick)
 
 # monitoring targets
 target_sets <- c("hab", "tox", "fish")[1:2]
-targ_exclude <- c("AZP", "YTX", "Prli")
+targ_exclude <- c("AZP", "YTX")
 targ_i <- map_dfr(target_sets, 
                   ~read_csv(paste0("data/i_", .x, ".csv"), show_col_types=F) |>
                     mutate(type=.x)) |>
   filter(! abbr %in% targ_exclude) |>
   arrange(type, abbr) |>
-  mutate(plotGroups=c(1, 2, 4, 3, 3, 3, 3, 2, 1)) |>
+  mutate(plotGroups=c(1, 2, 4, 5, 3, 3, 3, 3, 2, 1)) |>
   mutate(targ_ordered=factor(abbr,
                              levels=c("Alsp", "PSP", "Disp", "DSP",
                                       "Pssp", "Psde", "Psse", "ASP",  
-                                      "Kami"),
+                                      "Prli", "Kami"),
                              labels=c("Alexandrium", "PSTs",
                                       "Dinophysis", "DSTs (OA/DTXs/PTXs)",
                                       paste("Pseudo-nitzschia", c("spp.", "del.", "ser.")), "DA", 
-                                      "Karenia mikimotoi"))) |>
+                                      "Prorcentrum lima", "Karenia mikimotoi"))) |>
   arrange(targ_ordered)
 
 mod_i <- tibble(levels=c("nullGrand", "null4wk", "nullAuto", "perfect",
@@ -83,23 +83,35 @@ saveRDS(fcst.ls$alert_L |> filter(model=="Ensemble"),
 
 # calculate validation ----------------------------------------------------
 
-MCC_df <- readRDS("out/clean/out_all_ens.rds") |>
+MCC_df <- readRDS("out/clean/out_oos_ens.rds") |>
   filter(!is.na(optMCC)) |>
   group_by(model, y, prevAlert) |>
   slice_head(n=1) |>
-  select(model, y, prevAlert, optMCC, prA1)
+  ungroup() |>
+  select(model, y, prevAlert, optMCC, prA1) 
+F1_df <- readRDS("out/clean/out_oos_ens.rds") |>
+  filter(!is.na(optF1)) |>
+  group_by(model, y, prevAlert) |>
+  slice_head(n=1) |>
+  ungroup() |>
+  select(model, y, prevAlert, optF1, prA1)
+ens_oos <- readRDS("out/clean/out_oos_ens.rds")
 ens_fcst <- dirf("out/1_forecast", "fcst_all_.*rds") |>
   sort() |> last() |> readRDS() |>
   filter(grepl("Ensemble", model)) |>
-  bind_rows(readRDS("out/clean/out_all_ens.rds") |> 
+  bind_rows(readRDS("out/clean/out_oos_ens.rds") |> 
               filter(grepl("Null", model)) |> 
-              select(-matches("MCC|mcc"))) |>
+              select(-matches("MCC|mcc|F1"))) |>
   inner_join(MCC_df |> select(-prA1), by=join_by(model, y, prevAlert)) |>
+  inner_join(F1_df |> select(-prA1), by=join_by(model, y, prevAlert)) |>
   mutate(predMCC=factor(if_else(prA1 > optMCC, "A1", "A0"), levels=c("A0", "A1")),
          week=floor_date(date, "week"))
 saveRDS(ens_fcst, "out/clean/out_ens_fcst.rds")
 
-performance_all_ens_fcst <- ens_fcst |>
+oos_combined <- bind_rows(ens_oos, ens_fcst) |>
+  mutate(month=month(date))
+
+performance_all_ens_fcst <- oos_combined |>
   select(y, model, covSet, PCA, alert, prA1) |>
   filter(!grepl("perfect|auto", model)) |>
   na.omit() |>
@@ -115,7 +127,7 @@ performance_all_ens_fcst <- ens_fcst |>
          .metric="PR-AUC") |>
   rename(.estimate=AUCNPR) |> select(-AUCPR) |>
   ungroup() |>
-  bind_rows(ens_fcst |> 
+  bind_rows(oos_combined |> 
               filter(!grepl("perfect|auto", model)) |>
               group_by(y, model, PCA, covSet) |>
               summarise(.estimate=roc_auc_vec(prA1, truth=alert, event_level="second"),
@@ -125,7 +137,7 @@ performance_all_ens_fcst <- ens_fcst |>
               mutate(rank=min_rank(desc(.estimate)),
                      .metric="ROC-AUC") |>
               ungroup()) |>
-  bind_rows(ens_fcst |>
+  bind_rows(oos_combined |>
               filter(!grepl("perfect|auto", model)) |>
               group_by(y, model, PCA, covSet) |>
               summarise(.estimate=mcc_vec(truth=alert, estimate=predMCC),
@@ -136,36 +148,47 @@ performance_all_ens_fcst <- ens_fcst |>
               mutate(rank=min_rank(desc(.estimate)),
                      .metric="MCC") |>
               ungroup()) |>
-  bind_rows(ens_fcst |>
+  bind_rows(oos_combined |>
               filter(!grepl("perfect|auto", model)) |>
-              select(y, covSet, PCA, model, obsid, alert, prA1) %>%
-              filter(!is.na(prA1)) |>
-              pivot_wider(names_from="alert", values_from="prA1") |>
               group_by(y, model, PCA, covSet) |>
-              summarise(.estimate=schoenr_alt(density_alt(A0), density_alt(A1)),
+              summarise(.estimate=f_meas_vec(truth=alert, estimate=predF1),
                         N=n(),
-                        nAlert=sum(!is.na(A1))) |>
-              group_by(y) |>
-              mutate(rank=min_rank(.estimate),
-                     .metric="Schoener's D") |>
-              ungroup()) |>
-  bind_rows(ens_fcst |>
-              filter(!grepl("perfect|auto", model)) |>
-              group_by(y, model) |>
-              mutate(N=n(),
-                     nAlert=sum(alert=="A1")) |>
-              ungroup() |>
-              mutate(prA1=if_else(prA1==0, 1e-5, prA1),
-                     prA1=if_else(prA1==1, 1-1e-5, prA1),
-                     alert=as.numeric(alert=="A1")) |>
-              calc_R2(type="vz", y, N, nAlert) |>
-              rename(.estimate=R2) |>
-              mutate(.estimate=pmin(pmax(.estimate, 0), 1)) |>
-              na.omit() |>
+                        nAlert=sum(alert=="A1")) |>
+              mutate(.estimate=if_else(is.na(.estimate), 0, .estimate)) |>
               group_by(y) |>
               mutate(rank=min_rank(desc(.estimate)),
-                       .metric="R2-VZ_trunc") |>
+                     .metric="F1") |>
               ungroup()) |>
+  # bind_rows(oos_combined |>
+  #             filter(!grepl("perfect|auto", model)) |>
+  #             select(y, covSet, PCA, model, obsid, alert, prA1) %>%
+  #             filter(!is.na(prA1)) |>
+  #             pivot_wider(names_from="alert", values_from="prA1") |>
+  #             group_by(y, model, PCA, covSet) |>
+  #             summarise(.estimate=schoenr_alt(density_alt(A0), density_alt(A1)),
+  #                       N=n(),
+  #                       nAlert=sum(!is.na(A1))) |>
+  #             group_by(y) |>
+  #             mutate(rank=min_rank(.estimate),
+  #                    .metric="Schoener's D") |>
+  #             ungroup()) |>
+  # bind_rows(oos_combined |>
+  #             filter(!grepl("perfect|auto", model)) |>
+  #             group_by(y, model) |>
+  #             mutate(N=n(),
+  #                    nAlert=sum(alert=="A1")) |>
+  #             ungroup() |>
+  #             mutate(prA1=if_else(prA1==0, 1e-5, prA1),
+  #                    prA1=if_else(prA1==1, 1-1e-5, prA1),
+  #                    alert=as.numeric(alert=="A1")) |>
+  #             calc_R2(type="vz", y, N, nAlert) |>
+  #             rename(.estimate=R2) |>
+  #             mutate(.estimate=pmin(pmax(.estimate, 0), 1)) |>
+  #             na.omit() |>
+  #             group_by(y) |>
+  #             mutate(rank=min_rank(desc(.estimate)),
+  #                      .metric="R2-VZ_trunc") |>
+  #             ungroup()) |>
   arrange(y, .metric, model) |>
   group_by(y, .metric) |>
   mutate(score_v_null=.estimate - first(.estimate),
@@ -173,9 +196,10 @@ performance_all_ens_fcst <- ens_fcst |>
                        score_v_null/(0 - first(.estimate)),
                        score_v_null/(1 - first(.estimate)))) 
 saveRDS(performance_all_ens_fcst, "out/clean/performance_all_ens_fcst.rds")
+saveRDS(performance_all_ens_fcst, "out/2_shiny/validation_df.rds")
 
 
-performance_site_ens_fcst <- ens_fcst |>
+performance_site_ens_fcst <- oos_combined |>
   select(y, siteid, model, covSet, PCA, alert, prA1) |>
   filter(!grepl("perfect|auto", model)) |>
   na.omit() |>
@@ -191,7 +215,7 @@ performance_site_ens_fcst <- ens_fcst |>
          .metric="PR-AUC") |>
   rename(.estimate=AUCNPR) |> select(-AUCPR) |>
   ungroup() |>
-  bind_rows(ens_fcst |> 
+  bind_rows(oos_combined |> 
               filter(!grepl("perfect|auto", model)) |>
               group_by(y, siteid, model, PCA, covSet) |>
               summarise(.estimate=roc_auc_vec(prA1, truth=alert, event_level="second"),
@@ -201,7 +225,7 @@ performance_site_ens_fcst <- ens_fcst |>
               mutate(rank=min_rank(desc(.estimate)),
                      .metric="ROC-AUC") |>
               ungroup()) |>
-  bind_rows(ens_fcst |>
+  bind_rows(oos_combined |>
               filter(!grepl("perfect|auto", model)) |>
               group_by(y, siteid, model, PCA, covSet) |>
               summarise(.estimate=mcc_vec(truth=alert, estimate=predMCC),
@@ -212,46 +236,60 @@ performance_site_ens_fcst <- ens_fcst |>
               mutate(rank=min_rank(desc(.estimate)),
                      .metric="MCC") |>
               ungroup()) |>
-  bind_rows(ens_fcst |>
+  bind_rows(oos_combined |>
               filter(!grepl("perfect|auto", model)) |>
-              select(y, siteid, covSet, PCA, model, obsid, alert, prA1) %>%
-              filter(!is.na(prA1)) |>
-              pivot_wider(names_from="alert", values_from="prA1") |>
               group_by(y, siteid, model, PCA, covSet) |>
-              summarise(.estimate=schoenr_alt(density_alt(A0), density_alt(A1)),
+              summarise(.estimate=f_meas_vec(truth=alert, estimate=predF1),
                         N=n(),
-                        nAlert=sum(!is.na(A1))) |>
-              group_by(y, siteid) |>
-              mutate(rank=min_rank(.estimate),
-                     .metric="Schoener's D") |>
-              ungroup()) |>
-  bind_rows(ens_fcst |>
-              filter(!grepl("perfect|auto", model)) |>
-              group_by(y, siteid, model) |>
-              mutate(N=n(),
-                     nAlert=sum(alert=="A1")) |>
-              ungroup() |>
-              mutate(prA1=if_else(prA1==0, 1e-5, prA1),
-                     prA1=if_else(prA1==1, 1-1e-5, prA1),
-                     alert=as.numeric(alert=="A1")) |>
-              calc_R2(type="vz", y, siteid, N, nAlert) |>
-              rename(.estimate=R2) |>
-              mutate(.estimate=pmin(pmax(.estimate, 0), 1)) |>
-              na.omit() |>
+                        nAlert=sum(alert=="A1")) |>
+              mutate(.estimate=if_else(is.na(.estimate), 0, .estimate)) |>
               group_by(y, siteid) |>
               mutate(rank=min_rank(desc(.estimate)),
-                     .metric="R2-VZ_trunc") |>
+                     .metric="F1") |>
               ungroup()) |>
+  # bind_rows(oos_combined |>
+  #             filter(!grepl("perfect|auto", model)) |>
+  #             select(y, siteid, covSet, PCA, model, obsid, date, alert, prA1) |>
+  #             filter(!is.na(prA1)) |>
+  #             pivot_wider(names_from="alert", values_from="prA1") |>
+  #             group_by(y, siteid, model, PCA, covSet) |>
+  #             summarise(.estimate=schoenr_alt(density_alt(A0), density_alt(A1)),
+  #                       N=n(),
+  #                       nAlert=sum(!is.na(A1))) |>
+  #             group_by(y, siteid) |>
+  #             mutate(rank=min_rank(.estimate),
+  #                    .metric="Schoener's D") |>
+  #             ungroup()) |>
+  # bind_rows(oos_combined |>
+  #             filter(!grepl("perfect|auto", model)) |>
+  #             group_by(y, siteid, model) |>
+  #             mutate(N=n(),
+  #                    nAlert=sum(alert=="A1")) |>
+  #             ungroup() |>
+  #             mutate(prA1=if_else(prA1==0, 1e-5, prA1),
+  #                    prA1=if_else(prA1==1, 1-1e-5, prA1),
+  #                    alert=as.numeric(alert=="A1")) |>
+  #             calc_R2(type="vz", y, siteid, N, nAlert) |>
+  #             rename(.estimate=R2) |>
+  #             mutate(.estimate=pmin(pmax(.estimate, 0), 1)) |>
+  #             na.omit() |>
+  #             group_by(y, siteid) |>
+  #             mutate(rank=min_rank(desc(.estimate)),
+  #                    .metric="R2-VZ_trunc") |>
+  #             ungroup()) |>
   arrange(y, .metric, model) |>
   group_by(y, .metric, siteid) |>
   mutate(score_v_null=.estimate - first(.estimate),
          skill=if_else(.metric=="Schoener's D",
                        score_v_null/(0 - first(.estimate)),
-                       score_v_null/(1 - first(.estimate)))) 
+                       score_v_null/(1 - first(.estimate)))) |>
+  left_join(targ_i |> select(abbr, type), by=join_by(y==abbr)) |>
+  left_join(site_i |> select(siteid, sin, lon, lat, type))
 saveRDS(performance_site_ens_fcst, "out/clean/performance_site_ens_fcst.rds")
+saveRDS(performance_site_ens_fcst, "out/2_shiny/validation_sin_df.rds")
 
 
-performance_week_ens_fcst <- ens_fcst |>
+performance_week_ens_fcst <- oos_combined |>
   select(y, week, model, covSet, PCA, alert, prA1) |>
   filter(!grepl("perfect|auto", model)) |>
   na.omit() |>
@@ -267,7 +305,7 @@ performance_week_ens_fcst <- ens_fcst |>
          .metric="PR-AUC") |>
   rename(.estimate=AUCNPR) |> select(-AUCPR) |>
   ungroup() |>
-  bind_rows(ens_fcst |> 
+  bind_rows(oos_combined |> 
               filter(!grepl("perfect|auto", model)) |>
               group_by(y, week, model, PCA, covSet) |>
               summarise(.estimate=roc_auc_vec(prA1, truth=alert, event_level="second"),
@@ -277,7 +315,7 @@ performance_week_ens_fcst <- ens_fcst |>
               mutate(rank=min_rank(desc(.estimate)),
                      .metric="ROC-AUC") |>
               ungroup()) |>
-  bind_rows(ens_fcst |>
+  bind_rows(oos_combined |>
               filter(!grepl("perfect|auto", model)) |>
               group_by(y, week, model, PCA, covSet) |>
               summarise(.estimate=mcc_vec(truth=alert, estimate=predMCC),
@@ -288,36 +326,47 @@ performance_week_ens_fcst <- ens_fcst |>
               mutate(rank=min_rank(desc(.estimate)),
                      .metric="MCC") |>
               ungroup()) |>
-  bind_rows(ens_fcst |>
+  bind_rows(oos_combined |>
               filter(!grepl("perfect|auto", model)) |>
-              select(y, week, covSet, PCA, model, obsid, alert, prA1) %>%
-              filter(!is.na(prA1)) |>
-              pivot_wider(names_from="alert", values_from="prA1") |>
               group_by(y, week, model, PCA, covSet) |>
-              summarise(.estimate=schoenr_alt(density_alt(A0), density_alt(A1)),
+              summarise(.estimate=f_meas_vec(truth=alert, estimate=predF1),
                         N=n(),
-                        nAlert=sum(!is.na(A1))) |>
-              group_by(y, week) |>
-              mutate(rank=min_rank(.estimate),
-                     .metric="Schoener's D") |>
-              ungroup()) |>
-  bind_rows(ens_fcst |>
-              filter(!grepl("perfect|auto", model)) |>
-              group_by(y, week, model) |>
-              mutate(N=n(),
-                     nAlert=sum(alert=="A1")) |>
-              ungroup() |>
-              mutate(prA1=if_else(prA1==0, 1e-5, prA1),
-                     prA1=if_else(prA1==1, 1-1e-5, prA1),
-                     alert=as.numeric(alert=="A1")) |>
-              calc_R2(type="vz", y, week, N, nAlert) |>
-              rename(.estimate=R2) |>
-              mutate(.estimate=pmin(pmax(.estimate, 0), 1)) |>
-              na.omit() |>
+                        nAlert=sum(alert=="A1")) |>
+              mutate(.estimate=if_else(is.na(.estimate), 0, .estimate)) |>
               group_by(y, week) |>
               mutate(rank=min_rank(desc(.estimate)),
-                     .metric="R2-VZ_trunc") |>
+                     .metric="F1") |>
               ungroup()) |>
+  # bind_rows(oos_combined |>
+  #             filter(!grepl("perfect|auto", model)) |>
+  #             select(y, week, covSet, PCA, model, obsid, date, alert, prA1) %>%
+  #             filter(!is.na(prA1)) |>
+  #             pivot_wider(names_from="alert", values_from="prA1") |>
+  #             group_by(y, week, model, PCA, covSet) |>
+  #             summarise(.estimate=schoenr_alt(density_alt(A0), density_alt(A1)),
+  #                       N=n(),
+  #                       nAlert=sum(!is.na(A1))) |>
+  #             group_by(y, week) |>
+  #             mutate(rank=min_rank(.estimate),
+  #                    .metric="Schoener's D") |>
+  #             ungroup()) |>
+  # bind_rows(oos_combined |>
+  #             filter(!grepl("perfect|auto", model)) |>
+  #             group_by(y, week, model) |>
+  #             mutate(N=n(),
+  #                    nAlert=sum(alert=="A1")) |>
+  #             ungroup() |>
+  #             mutate(prA1=if_else(prA1==0, 1e-5, prA1),
+  #                    prA1=if_else(prA1==1, 1-1e-5, prA1),
+  #                    alert=as.numeric(alert=="A1")) |>
+  #             calc_R2(type="vz", y, week, N, nAlert) |>
+  #             rename(.estimate=R2) |>
+  #             mutate(.estimate=pmin(pmax(.estimate, 0), 1)) |>
+  #             na.omit() |>
+  #             group_by(y, week) |>
+  #             mutate(rank=min_rank(desc(.estimate)),
+  #                    .metric="R2-VZ_trunc") |>
+  #             ungroup()) |>
   arrange(y, .metric, model) |>
   group_by(y, .metric, week) |>
   mutate(score_v_null=.estimate - first(.estimate),
@@ -325,10 +374,9 @@ performance_week_ens_fcst <- ens_fcst |>
                        score_v_null/(0 - first(.estimate)),
                        score_v_null/(1 - first(.estimate)))) 
 saveRDS(performance_week_ens_fcst, "out/clean/performance_week_ens_fcst.rds")
+saveRDS(performance_week_ens_fcst, "out/2_shiny/validation_week_df.rds")
 
-ens_fcst <- ens_fcst |>
-  mutate(month=month(date))
-performance_month_ens_fcst <- ens_fcst |>
+performance_month_ens_fcst <- oos_combined |>
   select(y, month, model, covSet, PCA, alert, prA1) |>
   filter(!grepl("perfect|auto", model)) |>
   na.omit() |>
@@ -344,7 +392,7 @@ performance_month_ens_fcst <- ens_fcst |>
          .metric="PR-AUC") |>
   rename(.estimate=AUCNPR) |> select(-AUCPR) |>
   ungroup() |>
-  bind_rows(ens_fcst |> 
+  bind_rows(oos_combined |> 
               filter(!grepl("perfect|auto", model)) |>
               group_by(y, month, model, PCA, covSet) |>
               summarise(.estimate=roc_auc_vec(prA1, truth=alert, event_level="second"),
@@ -354,7 +402,7 @@ performance_month_ens_fcst <- ens_fcst |>
               mutate(rank=min_rank(desc(.estimate)),
                      .metric="ROC-AUC") |>
               ungroup()) |>
-  bind_rows(ens_fcst |>
+  bind_rows(oos_combined |>
               filter(!grepl("perfect|auto", model)) |>
               group_by(y, month, model, PCA, covSet) |>
               summarise(.estimate=mcc_vec(truth=alert, estimate=predMCC),
@@ -365,49 +413,116 @@ performance_month_ens_fcst <- ens_fcst |>
               mutate(rank=min_rank(desc(.estimate)),
                      .metric="MCC") |>
               ungroup()) |>
-  bind_rows(ens_fcst |>
+  bind_rows(oos_combined |>
               filter(!grepl("perfect|auto", model)) |>
-              select(y, month, covSet, PCA, model, obsid, alert, prA1) %>%
-              filter(!is.na(prA1)) |>
-              pivot_wider(names_from="alert", values_from="prA1") |>
               group_by(y, month, model, PCA, covSet) |>
-              summarise(.estimate=schoenr_alt(density_alt(A0), density_alt(A1)),
+              summarise(.estimate=f_meas_vec(truth=alert, estimate=predF1),
                         N=n(),
-                        nAlert=sum(!is.na(A1))) |>
-              group_by(y, month) |>
-              mutate(rank=min_rank(.estimate),
-                     .metric="Schoener's D") |>
-              ungroup()) |>
-  bind_rows(ens_fcst |>
-              filter(!grepl("perfect|auto", model)) |>
-              group_by(y, month, model) |>
-              mutate(N=n(),
-                     nAlert=sum(alert=="A1")) |>
-              ungroup() |>
-              mutate(prA1=if_else(prA1==0, 1e-5, prA1),
-                     prA1=if_else(prA1==1, 1-1e-5, prA1),
-                     alert=as.numeric(alert=="A1")) |>
-              calc_R2(type="vz", y, month, N, nAlert) |>
-              rename(.estimate=R2) |>
-              mutate(.estimate=pmin(pmax(.estimate, 0), 1)) |>
-              na.omit() |>
+                        nAlert=sum(alert=="A1")) |>
+              mutate(.estimate=if_else(is.na(.estimate), 0, .estimate)) |>
               group_by(y, month) |>
               mutate(rank=min_rank(desc(.estimate)),
-                     .metric="R2-VZ_trunc") |>
+                     .metric="F1") |>
               ungroup()) |>
+  # bind_rows(oos_combined |>
+  #             filter(!grepl("perfect|auto", model)) |>
+  #             select(y, month, covSet, PCA, model, obsid, date, alert, prA1) %>%
+  #             filter(!is.na(prA1)) |>
+  #             pivot_wider(names_from="alert", values_from="prA1") |>
+  #             group_by(y, month, model, PCA, covSet) |>
+  #             summarise(.estimate=schoenr_alt(density_alt(A0), density_alt(A1)),
+  #                       N=n(),
+  #                       nAlert=sum(!is.na(A1))) |>
+  #             group_by(y, month) |>
+  #             mutate(rank=min_rank(.estimate),
+  #                    .metric="Schoener's D") |>
+  #             ungroup()) |>
+  # bind_rows(oos_combined |>
+  #             filter(!grepl("perfect|auto", model)) |>
+  #             group_by(y, month, model) |>
+  #             mutate(N=n(),
+  #                    nAlert=sum(alert=="A1")) |>
+  #             ungroup() |>
+  #             mutate(prA1=if_else(prA1==0, 1e-5, prA1),
+  #                    prA1=if_else(prA1==1, 1-1e-5, prA1),
+  #                    alert=as.numeric(alert=="A1")) |>
+  #             calc_R2(type="vz", y, month, N, nAlert) |>
+  #             rename(.estimate=R2) |>
+  #             mutate(.estimate=pmin(pmax(.estimate, 0), 1)) |>
+  #             na.omit() |>
+  #             group_by(y, month) |>
+  #             mutate(rank=min_rank(desc(.estimate)),
+  #                    .metric="R2-VZ_trunc") |>
+  #             ungroup()) |>
   arrange(y, .metric, model) |>
   group_by(y, .metric, month) |>
   mutate(score_v_null=.estimate - first(.estimate),
          skill=if_else(.metric=="Schoener's D",
                        score_v_null/(0 - first(.estimate)),
-                       score_v_null/(1 - first(.estimate)))) 
+                       score_v_null/(1 - first(.estimate))),
+         date_std=ymd(paste0("2024-", month, "-01")))
 saveRDS(performance_month_ens_fcst, "out/clean/performance_month_ens_fcst.rds")
+saveRDS(performance_month_ens_fcst, "out/2_shiny/validation_month_df.rds")
 
 
 
 
 
 
+# merge for shiny ---------------------------------------------------------
+
+# update observation dataframe
+obs_old <- bind_rows(
+  readRDS("data/1_current/hab_obs.rds"),
+  readRDS("data/1_current/tox_obs.rds")
+) |>
+  select(sin, date, siteid, y, N, lnN, tl, alert) |>
+  mutate(y_site_date=paste(y, siteid, date, sep="_"),
+         src="old")
+obs_new <- bind_rows(
+  readRDS("data/2_new/hab_obs.rds"),
+  readRDS("data/2_new/tox_obs.rds")
+) |>
+  select(sin, date, siteid, y, N, lnN, tl, alert) |>
+  mutate(y_site_date=paste(y, siteid, date, sep="_"),
+         src="new")
+obs_ysd <- unique(obs_old$y_site_date)
+obs_combined <- obs_old |>
+  bind_rows(obs_new |> filter(! y_site_date %in% obs_ysd)) |>
+  left_join(targ_i |> select(abbr, type), by=join_by(y==abbr)) |>
+  left_join(site_i |> select(siteid, sin, lon, lat, type)) |>
+  mutate(week=floor_date(date, "week"),
+         tl=factor(tl, levels=c("TL0", "TL1", "TL2", "TL3"), ordered=T))
+saveRDS(obs_combined, "out/2_shiny/obs_df.rds")
+
+
+# update forecast dataframe
+ens_all <- readRDS("out/clean/out_oos_ens.rds") |>
+  mutate(y_site_date=paste(y, siteid, date, sep="_"),
+         src="old")
+ens_fcst <- readRDS("out/clean/out_ens_fcst.rds") |>
+  mutate(y_site_date=paste(y, siteid, date, sep="_"),
+         src="new")
+
+fcst_ysd <- unique(filter(ens_fcst, model=="Ensemble")$y_site_date)
+all_ysd <- unique(filter(ens_all, model=="Ensemble")$y_site_date)
+
+ens_combined <- ens_all |>
+  bind_rows(ens_fcst |> 
+              filter(y_site_date %in% fcst_ysd) |>
+              filter(! y_site_date %in% all_ysd)) |>
+  group_by(y, siteid) |>
+  mutate(N=n(), nYrs=n_distinct(year(date))) |>
+  ungroup() |> filter(N >= 30 & nYrs > 1) |>
+  arrange(y, siteid, date) |>
+  select(y, siteid, date, week, obsid, model, prevAlert, alert, prA1) |>
+  left_join(targ_i |> select(abbr, type), by=join_by(y==abbr)) |>
+  left_join(site_i |> select(siteid, sin, lon, lat, type)) |>
+  mutate(week=floor_date(date, "week"))
+saveRDS(ens_combined, "out/2_shiny/fcst_df.rds")
+
+
+# update observation dataframe
 
 
 

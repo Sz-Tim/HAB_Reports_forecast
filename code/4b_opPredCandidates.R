@@ -26,18 +26,18 @@ library(butcher)
 
 
 set.seed(1)
-ncores <- 30
+ncores <- 40
 responses <- c(alert="alert")
 
 target_sets <- c("hab", "tox", "fish")[1:2]
-targ_exclude <- c("AZP", "YTX", "Prli")
+targ_exclude <- c("AZP", "YTX")
 targ_i <- map_dfr(target_sets, 
                   ~read_csv(glue("data/i_{.x}.csv"), show_col_types=F) |>
                     mutate(type=.x)) |>
   filter(! abbr %in% targ_exclude) |>
   arrange(type, abbr)
 
-covSet.df <- read_csv("data/covSet_hab_tox.csv")
+covSet.df <- read_csv("data/covSet_df.csv")
 
 
 
@@ -55,6 +55,8 @@ foreach(i=1:nrow(covSet.df), .options.future=list(seed=TRUE), .errorhandling="re
   y.i <- covSet.df$y[i]
   y_i.i <- targ_i |> filter(abbr==y.i)
   
+  cat(y.i, id, file=glue("out/logs/fcst/{y.i}_{id}.log"))
+  
   # directories
   data.dir <- glue("data/2_new/compiled/")
   base.dir <- glue("out/0_init/")
@@ -63,8 +65,8 @@ foreach(i=1:nrow(covSet.df), .options.future=list(seed=TRUE), .errorhandling="re
   dir.create(glue("{out.dir}/{id}/"), showWarnings=F, recursive=T)
     
   # load datasets
-  d.y <- dirf(data.dir, glue("{y.i}_{id}_dy")) |> readRDS()
-  dPCA.y <- dirf(data.dir, glue("{y.i}_{id}_dPCAy")) |> readRDS()
+  d.y <- dirf(data.dir, glue("{y.i}_{id}_dy")) |> last() |> readRDS()
+  dPCA.y <- dirf(data.dir, glue("{y.i}_{id}_dPCAy")) |> last() |> readRDS()
     
   # generate all forecast predictions
   fcst.ls <- map(responses, ~summarise_predictions(d.y$test, dPCA.y$test, .x, fit.dir, y_i.i))
