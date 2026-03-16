@@ -40,8 +40,7 @@ if(file.exists(history_f)) {
                             date_generated=as_date(character()),
                             date_forecast=as_date(character()),
                             
-                            ensGLM2_alert_A1=numeric(),
-                            alert=factor(character(), levels=c("A0", "A1")))
+                            ensGLM2_alert_A1=numeric())
 }
 
 

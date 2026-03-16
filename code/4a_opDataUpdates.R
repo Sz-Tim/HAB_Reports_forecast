@@ -196,6 +196,8 @@ for(i in target_sets) {
 # HAB status for toxins ---------------------------------------------------
 
 # TODO: This will fail if there is no new toxin data -- add ifelse like above
+# TODO: Returns NaN if no hab data within the time frame... replace with 0? Or 
+# just exclude? As-is, this means forecasts are not possible.
 # Calculate average HAB densities surrounding each cefas site
 min_new_date_tox <- min(readRDS("data/2_new/cefas_df.rds")$date)
 hab.df <- bind_rows(
@@ -356,6 +358,12 @@ obs_end <- list(
   cmems=max(ymd(str_sub(dir("data/2_new", "cmems_end"), -14, -5))),
   wrf=max(ymd(str_sub(dir("data/2_new", "wrf_end"), -14, -5)))
 )
+# Correct if any had no new observations
+date_check <- map_lgl(obs_end, ~is.infinite(.x) | is.na(.x) | is.nan(.x))
+if(any(date_check)) {
+  obs_end_old <- readRDS("data/1_current/obs_end.rds")
+  obs_end[date_check] <- obs_end_old[date_check]
+}
 saveRDS(obs_end, "data/2_new/obs_end.rds")
 
 
