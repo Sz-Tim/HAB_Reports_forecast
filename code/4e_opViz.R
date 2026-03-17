@@ -8,9 +8,12 @@
 
 # setup -------------------------------------------------------------------
 library(tidyverse)
+library(jsonlite)
 library(glue)
+library(habforecastr)
 
 habcast_dir <- "~/habcast/"
+urls <- readRDS("data/habreports_urls.rds")
 
 target_sets <- c("hab", "tox", "fish")[1:2]
 targ_i <- map(target_sets, ~read_csv(glue("data/i_{.x}.csv"))) |>
@@ -37,9 +40,7 @@ targ_tl <- list(
     ungroup() |>
     select(abbr, min_ge, A, alert, tl) |>
     mutate(A=if_else(abbr %in% c("ASP", "AZAs", "YTXs") & as.numeric(tl)>1, "A1", A),
-           alert=if_else(abbr %in% c("ASP", "AZAs", "YTXs") & as.numeric(tl)>1, 2, alert)),
-  "fish"=get_tl_info(targ_i$fish) |>
-    select(abbr, min_ge, A, alert, tl)
+           alert=if_else(abbr %in% c("ASP", "AZAs", "YTXs") & as.numeric(tl)>1, 2, alert))
 )
 
 
@@ -216,9 +217,25 @@ obs_df <- bind_rows(
   readRDS("shiny_risk_forecast/cefas_df.rds")
 )
 saveRDS(obs_df, "shiny_risk_forecast/obs_df.rds")
+saveRDS(obs_df, paste0(habcast_dir, "/habcastApp/data/clean/obs_df.rds"))
 site_df <- bind_rows(
   readRDS("shiny_risk_forecast/site_hab_df.rds") |> mutate(type="hab"),
   readRDS("shiny_risk_forecast/site_tox_df.rds") |> mutate(type="tox")
 )
 saveRDS(site_df, "shiny_risk_forecast/site_allObs_df.rds")
+saveRDS(site_df, paste0(habcast_dir, "/habcastApp/data/clean/site_allObs_df.rds"))
 
+site_i <- bind_rows(
+  readRDS("data/site_hab_df.rds") |> mutate(type="hab"),
+  readRDS("data/site_tox_df.rds") |> mutate(type="tox")
+) |>
+  select(type, siteid, sin, site, area, farm_species, lon, lat)
+
+fcst_df <- readRDS("out/1_forecast/compiled/fcst_history_df.rds") |>
+  slice_max(date_generated, by=c(y, siteid, date_forecast)) |>
+  mutate(type=if_else(y %in% targ_i$hab$abbr, "hab", "tox")) |>
+  rename(prA1=ensGLM2_alert_A1) |>
+  left_join(site_i, by=join_by(type, siteid)) |>
+  mutate(week=floor_date(date_forecast, "week"))
+saveRDS(fcst_df, "shiny_risk_forecast/fcst_df.rds")
+saveRDS(fcst_df, paste0(habcast_dir, "/habcastApp/data/clean/fcst_df.rds"))
