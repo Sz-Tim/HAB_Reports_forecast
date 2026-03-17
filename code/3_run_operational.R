@@ -31,18 +31,18 @@ tryCatch(
     
     
     # calculate updated validation metrics ------------------------------------
-    cat("  Running ./code/4d_opValidation.R", "\n", file=logfile, append=T)
-    source("./code/4d_opValidation.R")
+    # cat("  Running ./code/4d_opValidation.R", "\n", file=logfile, append=T)
+    # source("./code/4d_opValidation.R")
     
     
-    # create new plots and tables ---------------------------------------------
-    cat("  Running ./code/4e_opViz.R", "\n", file=logfile, append=T)
-    source("./code/4e_opViz.R")
+    # prepare objects for shiny app -------------------------------------------
+    cat("  Running ./code/4d_opShinyPrep.R", "\n", file=logfile, append=T)
+    source("./code/4d_opShinyPrep.R")
     
     
     # publish to HABreports ---------------------------------------------------
-    cat("  Running ./code/4f_opPublish.R", "\n", file=logfile, append=T)
-    source("./code/4f_opPublish.R")
+    cat("  Running ./code/4e_opShinyPush.sh", "\n", file=logfile, append=T)
+    system2("bash ./code/4f_opShinyPush.sh")
     
     
     # success -----------------------------------------------------------------
