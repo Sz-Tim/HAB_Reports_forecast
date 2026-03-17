@@ -208,7 +208,7 @@ hab.df <- bind_rows(
   group_by(date, siteid, y) |>
   summarise(across(where(is.numeric), mean, na.rm=T), 
             across(where(is.factor) | where(is.character), first)) |>
-  ungroup()
+  ungroup() 
 tox.df <- bind_rows(
   readRDS(glue("data/1_current/cefas_df.rds")) |>
     filter(between(date, min_new_date_tox - 7*8, min_new_date_tox)) |>
@@ -230,7 +230,8 @@ habAvg_tox.df <- summarise_hab_states(
     select(siteid, lon, lat) |> st_as_sf(coords=c("lon", "lat"), crs=27700), 
   tox.obs=tox.df, 
   hab.df=hab.df
-)
+) |>
+  mutate(across(matches("lnNAvg|prA"), ~if_else(is.na(.x), 0, .x)))
 saveRDS(habAvg_tox.df, "data/2_new/tox_habAvg.rds")
 
 
