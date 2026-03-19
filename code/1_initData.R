@@ -7,6 +7,7 @@
 
 # setup -------------------------------------------------------------------
 library(terra)
+library(raster)
 library(gdistance)
 library(tidyverse)
 library(glue)
@@ -32,7 +33,7 @@ urls <- c(fsa="fsa_counts",
   map(~glue("http://www.habreports.org/dbdatastuff/{.x}"))
 saveRDS(urls, "data/habreports_urls.rds")
 
-target_sets <- c("hab", "tox", "habfish")
+target_sets <- c("hab", "tox", "fish")[1:2]
 targ_i <- map(target_sets, ~read_csv(glue("data/i_{.x}.csv"))) |>
   set_names(target_sets)
 targ_tl <- list(
@@ -57,10 +58,18 @@ targ_tl <- list(
     ungroup() |>
     select(abbr, min_ge, A, alert, tl) |>
     mutate(A=if_else(abbr %in% c("ASP", "AZAs", "YTXs") & as.numeric(tl)>1, "A1", A),
-           alert=if_else(abbr %in% c("ASP", "AZAs", "YTXs") & as.numeric(tl)>1, 2, alert)),
-  "habfish"=get_tl_info(targ_i$habfish) |>
-    select(abbr, min_ge, A, alert, tl)
+           alert=if_else(abbr %in% c("ASP", "AZAs", "YTXs") & as.numeric(tl)>1, 2, alert))
 )
+if("fish" %in% target_sets) {
+  targ_tl$fish <- get_tl_info(targ_i$fish) |>
+    select(abbr, min_ge, A, alert, tl)
+}
+if(!is.null(targ_tl$fish)) {
+  kasp_rows <- which(targ_tl$fish$abbr=="Kasp" & targ_tl$fish$min_ge < 500000)
+  targ_tl$fish$A[kasp_rows] <- "A0"
+  targ_tl$fish$alert[kasp_rows] <- c(0, 1)
+  targ_tl$fish$tl[kasp_rows] <- c("TL0", "TL2")
+}
 
 
 
@@ -70,9 +79,9 @@ for(i in target_sets) {
   iSrc <- switch(i, 
                  "hab"="fsa",
                  "tox"="cefas",
-                 "habfish"="fish")
+                 "fish"="fish")
   # read and clean monitoring sites
-  if(i == "habfish") {
+  if(i == "fish") {
     sites <- read_and_clean_sites(urls$mowi_sites, dateStart) |>
       bind_rows(read_and_clean_sites(urls$ssf_sites, dateStart))
   } else {
@@ -85,9 +94,15 @@ for(i in target_sets) {
     select(-lon, -lat) |> 
     saveRDS(glue("data/0_init/{iSrc}_df.rds"))
   # save sites that align with actual data
-  site_df <- dat.df |>
-    select(siteid, sin, lon, lat) |>
-    group_by(siteid) |> slice_head(n=1) |> ungroup()
+  if(i == "fish") {
+    site_df <- dat.df |>
+      select(siteid, sin, lon, lat) |>
+      group_by(siteid) |> slice_head(n=1) |> ungroup()
+  } else {
+    site_df <- dat.df |>
+      select(siteid, sin, site, area, farm_species, lon, lat) |>
+      group_by(siteid) |> slice_head(n=1) |> ungroup()
+  }
   saveRDS(site_df, glue("data/site_{i}_df.rds"))
 }
 
@@ -114,21 +129,23 @@ cmems_i <- expand_grid(
          doi=glue("https://doi.org/10.48670/moi-0005{if_else(source=='Reanalysis', 8, 6)}"),
          ID=glue("cmems_mod_nws_bgc-{var}_", 
                  "{if_else(source=='Reanalysis', 'my', 'anfc')}_7km-3D_P1D-m"),
-         ID_toolbox=glue("cmems_mod_nws_bgc", 
-                         "{if_else(source=='Reanalysis', paste0('-', var, '_my_7km'), '_anfc_0.027deg')}-3D_P1D-m"))
+         ID_toolbox=ID) # Access keeps changing........
+         # ID_toolbox=glue("cmems_mod_nws_bgc", 
+                         # "{if_else(source=='Reanalysis', paste0('-', var, '_my_7km'), '_anfc_0.027deg')}-3D_P1D-m"))
 write_csv(cmems_i, "data/cmems_i.csv")
 
 fsa.df <- readRDS("data/0_init/fsa_df.rds")
 cefas.df <- readRDS("data/0_init/cefas_df.rds")
-fish.df <- readRDS("data/0_init/fish_df.rds")
+# fish.df <- readRDS("data/0_init/fish_df.rds")
 get_CMEMS(userid=NULL, pw=NULL, 
           i.df=cmems_i, bbox=UK_bbox, 
           nDays_buffer=nDays_avg, 
-          dateRng=range(c(fsa.df$date, cefas.df$date, fish.df$date)), 
+          dateRng=range(c(fsa.df$date, 
+                          cefas.df$date)), 
+                          # fish.df$date)), 
           out.dir="data/00_env/cmems/",
           toolbox=TRUE)
 
-cmems_LU <- readRDS(dir("data/00_env/cmems/", "coords.*rds", full.names=T)[1]) 
 cmems.f <- dir("data/00_env/cmems", "cmems.*.rds", full.names=T)
 cmems.ls <- map(cmems.f, ~readRDS(.x)) 
 cmems.df <- cmems.ls[[1]] |> mutate(chl=log1p(chl))
@@ -156,15 +173,18 @@ saveRDS(cmems.df, glue("data/0_init/cmems_end_{max(cmems.df$date)}.rds"))
 
 fsa.df <- readRDS("data/0_init/fsa_df.rds")
 cefas.df <- readRDS("data/0_init/cefas_df.rds")
-fish.df <- readRDS("data/0_init/fish_df.rds")
+# fish.df <- readRDS("data/0_init/fish_df.rds")
 wrf.dir <- ifelse(.Platform$OS.type=="unix",
                   "https",#"/media/archiver/common/sa01da-work/WRF/Archive/",
                   "E:/hydroOut/WRF/Archive/")
 wrf.out <- "data/00_env/wrf/"
 get_WRF(wrf.dir=wrf.dir, nDays_buffer=nDays_avg, 
-        dateRng=range(c(fsa.df$date, cefas.df$date, fish.df$date)), 
+        dateRng=c(ymd("2016-01-01"), ymd("2025-12-31")),
+        # dateRng=range(c(fsa.df$date,
+        #                 cefas.df$date)),
+                        # fish.df$date)), 
         out.dir=wrf.out)
-wrf.df <- aggregate_WRF(wrf.out)
+wrf.df <- aggregate_WRF(wrf.out, refreshStart="2015-05-13")
 saveRDS(wrf.df, glue("data/0_init/wrf_end_{max(wrf.df$date)}.rds"))
 
 
@@ -177,7 +197,7 @@ for(i in target_sets) {
                                site.df=site_df, 
                                site_savePath=glue("data/site_{i}_df.rds"))
   write_csv(path.ls$dist.df, glue("data/site_{i}_pairwise_distances.csv"))
-  path.ls <- list(dist.df=glue(read_csv("data/site_{i}_pairwise_distances.csv")))
+  path.ls <- list(dist.df=read_csv(glue("data/site_{i}_pairwise_distances.csv")))
   path.ls$dist.df |>
     bind_rows(path.ls$dist.df |> 
                 rename(destinations=origins, origins=destinations)) |>
@@ -228,7 +248,7 @@ for(i in target_sets) {
   iSrc <- switch(i, 
                  "hab"="fsa",
                  "tox"="cefas",
-                 "habfish"="fish")
+                 "fish"="fish")
   y.df <- calc_y_features(
     readRDS(glue("data/0_init/{iSrc}_df.rds")), 
     targ_i[[i]], targ_tl[[i]],
@@ -290,12 +310,13 @@ for(i in target_sets) {
   # find site point locations
   site_df <- readRDS(glue("data/site_{i}_df.rds")) |> select(-any_of("cmems_id"))
   site_df <- site_df |> find_nearest_feature_id(cmems.sf, "cmems_id")
-  saveRDS(site_df, glue("data/site_{i}_df.rds"))
+  saveRDS(site_df, glue("data/site_{i}_df_CMEMSUPDATE.rds"))
   # extract point environment
   cmems.site <- extract_env_pts(site_df, cmems_i$all, 
                                 cmems.df_i |> mutate(version=1), 
                                 cmems_id, "cmems_id")
   saveRDS(cmems.site, glue("data/0_init/cmems_sitePt_{i}.rds"))
+  rm(cmems.site); gc()
   # find site buffer locations
   site.buffer <- st_read(glue("data/site_{i}_sf.gpkg")) |>
     find_buffer_intersect_ids(cmems.sf, "cmems_id")
@@ -303,6 +324,7 @@ for(i in target_sets) {
   cmems.buffer <- extract_env_buffers(site.buffer, cmems_i, 
                                       cmems.df_i, "cmems_id")
   saveRDS(cmems.buffer, glue("data/0_init/cmems_siteBufferNSEW_{i}.rds"))
+  rm(cmems.buffer); gc()
 }
 
 
@@ -331,6 +353,7 @@ for(i in target_sets) {
   site.versions <- grep("wrf_id", names(site_df), value=T)
   wrf.site <- extract_env_pts(site_df, wrf_i$all, wrf.df_i, wrf_id, site.versions)
   saveRDS(wrf.site, glue("data/0_init/wrf_sitePt_{i}.rds"))
+  rm(wrf.site); rm(site_df); gc()
   # find site buffer locations
   site.buffer <- map(wrf_versions, 
                      ~st_read(glue("data/site_{i}_sf.gpkg")) |> 
@@ -340,6 +363,7 @@ for(i in target_sets) {
   wrf.buffer <- extract_env_buffers(site.buffer, wrf_i, 
                                     wrf.df_i, paste0("wrf_id.", 1:2))
   saveRDS(wrf.buffer, glue("data/0_init/wrf_siteBufferNSEW_{i}.rds"))
+  rm(wrf.df_i); rm(wrf.buffer); rm(site.buffer); gc()
 }
 
 
@@ -376,23 +400,23 @@ iwalk(dat.ls, ~saveRDS(.x$compiled, glue("data/0_init/data_{.y}_all.rds")))
 
 # identify all cmems/wrf variable names
 grep("cmems_id|date|siteid|version",
-     c(walk_chr(dat.ls, ~.x$cmems.pt |> names()),
-       walk_chr(dat.ls, ~.x$cmems.buf |>
+     c(unlist(map(dat.ls, ~.x$cmems.pt |> names())),
+       unlist(map(dat.ls, ~.x$cmems.buf |>
                   pivot_wider(names_from="quadrant",
                               values_from=-(1:3),
                               names_sep="Dir") |>
-                  names())) |>
+                  names()))) |>
        unique(),
      value=T, invert=T) |> 
   sort() |>
   saveRDS("data/cmems_vars.rds")
 grep("wrf_id|date|siteid|version",
-     c(walk_chr(dat.ls, ~.x$wrf.pt |> names()),
-       walk_chr(dat.ls, ~.x$wrf.buf |>
+     c(unlist(map(dat.ls, ~.x$wrf.pt |> names())),
+       unlist(map(dat.ls, ~.x$wrf.buf |>
                   pivot_wider(names_from="quadrant",
                               values_from=-(1:3),
                               names_sep="Dir") |>
-                  names())) |>
+                  names()))) |>
        unique(),
      value=T, invert=T) |> 
   sort() |>
@@ -409,7 +433,7 @@ write_to_current <- T
 if(write_to_current) {
   file.copy(dirf("data/0_init/", "fsa_df"), "data/1_current/", overwrite=T)
   file.copy(dirf("data/0_init/", "cefas_df"), "data/1_current/", overwrite=T)
-  file.copy(dirf("data/0_init/", "fish_df"), "data/1_current/", overwrite=T)
+  # file.copy(dirf("data/0_init/", "fish_df"), "data/1_current/", overwrite=T)
   file.copy(dirf("data/0_init/", "_obs.rds"), "data/1_current/", overwrite=T)
   file.copy(dirf("data/0_init/", "_habAvg.rds"), "data/1_current/", overwrite=T)
   file.copy(dirf("data/0_init/", "_sitePt_"), "data/1_current/", overwrite=T)

@@ -13,7 +13,6 @@ library(tidymodels)
 library(nnet)
 library(randomForest)
 library(glmnet)
-library(xgboost)
 library(earth)
 library(bonsai)
 library(lightgbm)
@@ -26,22 +25,21 @@ library(butcher)
 
 
 set.seed(1)
-fit_ens_with_testing_data <- FALSE 
+fit_ens_with_testing_data <- TRUE
 ncores <- 20
-train_prop <- 1
-run_type <- "0_init_fish" 
+train_prop <- 0.75
+run_type <- "0_init" 
 responses <- c(alert="alert")
 
-target_sets <- c("hab", "tox", "fish")[3]
-targ_exclude <- c("AZP", "YTX", "Prli")
+target_sets <- c("hab", "tox", "fish")[-3]
+targ_exclude <- c("AZP", "YTX")
 targ_i <- map_dfr(target_sets, 
                   ~read_csv(glue("data/i_{.x}.csv"), show_col_types=F) |>
                     mutate(type=.x)) |>
   filter(! abbr %in% targ_exclude) |>
   arrange(type, abbr)
-
-covSet.df <- read_csv("data/covSet_hab_tox.csv")
-covSet.df <- read_csv("data/covSet_fish.csv")
+  
+covSet.df <- read_csv("data/covSet_df.csv")
 
 
 
@@ -53,8 +51,8 @@ if(.Platform$OS.type=="unix") {
   plan(multisession, workers=ncores)
 }
 
-# foreach(i=1:nrow(covSet.df), .options.future=list(seed=TRUE)) %dofuture% {
-for(i in 1:nrow(covSet.df)) {
+foreach(i=1:nrow(covSet.df), .options.future=list(seed=TRUE), .errorhandling="pass") %dofuture% {
+# for(i in 1:nrow(covSet.df)) {
   try({
   # covariate set / response info
   id <- covSet.df$id[i]
@@ -74,7 +72,10 @@ for(i in 1:nrow(covSet.df)) {
   
   # load datasets
   if(!file.exists(glue("{data.dir}/compiled/{y.i}_{id}_dy_testPct-{train_prop}.rds"))) {
-    next
+    next # constituents haven't been fit
+  }
+  if(file.exists(glue("{out.dir}/{y.i}_fit_ls.rds")) & file.exists(glue("{out.dir}/{y.i}_oos_ls.rds"))) {
+    next # already finished
   }
   d.y <- readRDS(glue("{data.dir}/compiled/{y.i}_{id}_dy_testPct-{train_prop}.rds"))
   dPCA.y <- readRDS(glue("{data.dir}/compiled/{y.i}_{id}_dPCAy_testPct-{train_prop}.rds"))
@@ -98,10 +99,17 @@ plan(sequential); gc()
 
 # Compile -----------------------------------------------------------------
 
+ncores <- 70
 base.dir <- glue("out/{run_type}")
 ens.dir <- glue("{base.dir}/ensembles/")
 
-for(i in 1:nrow(targ_i)) {
+if(.Platform$OS.type=="unix") {
+  plan(multicore, workers=ncores)
+} else {
+  plan(multisession, workers=ncores)
+}
+
+for(i in 3:nrow(targ_i)) {
   try({
     y_i.i <- targ_i[i,]
     y.i <- targ_i$abbr[i]
@@ -114,7 +122,7 @@ for(i in 1:nrow(targ_i)) {
     fit.ls <- merge_pred_dfs(dirf(glue("{base.dir}/compiled"), glue("{y.i}_fit_ls.rds"), recursive=T))
     fit.ls$alert <- fit.ls$alert |> select(-ends_with(".x"), -ends_with(".y"))
     
-    if(length(dirf(glue("{base.dir}/model_fits"), glue("{y.i}_.*_HB_CV"), recursive=T)) == 0) {
+    if(length(dirf(glue("{base.dir}/model_fits"), glue("{y.i}_.*_HB1_CV"), recursive=T)) == 0) {
       HB_CV <- fit.ls$alert[, c("y", "obsid", "siteid", "date", "alert")]
     } else {
       HB_CV <- merge_pred_dfs(dirf(glue("{base.dir}/model_fits"), glue("{y.i}_.*_HB_CV"), recursive=T), CV="HB")
@@ -144,12 +152,13 @@ for(i in 1:nrow(targ_i)) {
     }
     if(fit_ens_with_testing_data) {
       # fit ensemble using testing data; validate with future data
-      oos.cv <- list(alert=oos.ls$alert |> select(any_of(names(cv.ls$alert))))
+      oos.cv <- list(alert=oos.ls$alert |> select(y, obsid, siteid, year, date, alert, ends_with("alert_A1")))
       if(sum(oos.cv$alert$alert=="A1") < 10) {
         next
       }
       oos.ls <- map(responses, ~fit_ensemble(oos.ls, wt.ls, .x, y_i.i, "wtmean"))
       oos.ls <- map(responses, ~fit_ensemble(oos.ls, oos.cv, .x, y_i.i, "GLM_fit", ens.dir, 1e3))
+      fit.ls <- map(responses, ~fit_ensemble(fit.ls, cv.ls, .x, y_i.i, "GLM_oos", ens.dir))
     } else {
       # fit ensembles using training data; validate with testing data
       fit.ls <- map(responses, ~fit_ensemble(fit.ls, wt.ls, .x, y_i.i, "wtmean"))
@@ -177,19 +186,8 @@ for(i in 1:nrow(targ_i)) {
         map2(.x=_, fit.ls, ~bind_cols(.x, .y |> select(contains("nullGrand")) |> slice_head(n=1)))
       saveRDS(oos.ls, glue("{base.dir}/compiled/{y.i}_oos.rds"))
     }
-    
-    
   })
 }
 
 plan(sequential); gc()
-
-
-
-
-
-
-
-
-
 
