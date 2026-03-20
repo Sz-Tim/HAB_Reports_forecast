@@ -41,8 +41,8 @@ tryCatch(
     
     
     # publish to HABreports ---------------------------------------------------
-    cat("  Running ./code/4e_opShinyPush.sh", "\n", file=logfile, append=T)
-    system2("bash ./code/4f_opShinyPush.sh")
+    # cat("  Running ./code/4e_opShinyPush.sh", "\n", file=logfile, append=T)
+    # system2("bash ./code/4f_opShinyPush.sh")
     
     
     # success -----------------------------------------------------------------
@@ -50,8 +50,6 @@ tryCatch(
     
   }, error=function(err.msg) {
     write(toString(err.msg), logfile, append=T)
-  }, warning=function(warningcondition) {               
-    write(toString(warningcondition), logfile, append=TRUE)
   }
 )
 
