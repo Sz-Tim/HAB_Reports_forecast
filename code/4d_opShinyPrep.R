@@ -12,7 +12,6 @@ library(jsonlite)
 library(glue)
 library(habforecastr)
 
-habcast_dir <- "~/habcast/"
 urls <- readRDS("data/habreports_urls.rds")
 
 target_sets <- c("hab", "tox", "fish")[1:2]
@@ -217,13 +216,11 @@ obs_df <- bind_rows(
   readRDS("shiny_risk_forecast/cefas_df.rds")
 )
 saveRDS(obs_df, "shiny_risk_forecast/obs_df.rds")
-saveRDS(obs_df, paste0(habcast_dir, "/habcastApp/data/clean/obs_df.rds"))
 site_df <- bind_rows(
   readRDS("shiny_risk_forecast/site_hab_df.rds") |> mutate(type="hab"),
   readRDS("shiny_risk_forecast/site_tox_df.rds") |> mutate(type="tox")
 )
 saveRDS(site_df, "shiny_risk_forecast/site_allObs_df.rds")
-saveRDS(site_df, paste0(habcast_dir, "/habcastApp/data/clean/site_allObs_df.rds"))
 
 site_i <- bind_rows(
   readRDS("data/site_hab_df.rds") |> mutate(type="hab"),
@@ -238,4 +235,3 @@ fcst_df <- readRDS("out/1_forecast/compiled/fcst_history_df.rds") |>
   left_join(site_i, by=join_by(type, siteid)) |>
   mutate(week=floor_date(date_forecast, "week"))
 saveRDS(fcst_df, "shiny_risk_forecast/fcst_df.rds")
-saveRDS(fcst_df, paste0(habcast_dir, "/habcastApp/data/clean/fcst_df.rds"))
