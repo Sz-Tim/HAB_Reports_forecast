@@ -199,7 +199,11 @@ for(i in target_sets) {
 # TODO: Returns NaN if no hab data within the time frame... replace with 0? Or 
 # just exclude? As-is, this means forecasts are not possible.
 # Calculate average HAB densities surrounding each cefas site
-min_new_date_tox <- min(readRDS("data/2_new/cefas_df.rds")$date)
+if(nrow(readRDS("data/2_new/cefas_df.rds"))==0) {
+  min_new_date_tox <- old_end$tox + nDays_replace
+} else {
+  min_new_date_tox <- min(readRDS("data/2_new/cefas_df.rds")$date)
+}
 hab.df <- bind_rows(
   readRDS("data/1_current/hab_obs.rds") |>
     filter(date > min_new_date_tox - 7*12),
@@ -250,10 +254,6 @@ for(i in target_sets) {
   dateMin_i <- min(readRDS(glue("data/2_new/{i}_obs.rds"))$date)
   cmems.df_i <- cmems.df |> filter(date >= (dateMin_i - 365))
   site_df <- readRDS(glue("data/site_{i}_df.rds"))
-  # find site point locations -- SHOULD BE UNNECESSARY!!
-  # site_df <- readRDS(glue("data/site_{i}_df.rds")) |> select(-any_of("cmems_id"))
-  # site_df <- site_df |> find_nearest_feature_id(cmems.sf, "cmems_id")
-  # saveRDS(site_df, glue("data/site_{i}_df_CMEMS_4a.rds"))
   # extract point environment
   cmems.site <- extract_env_pts(site_df, cmems_i$all, 
                                 cmems.df_i |> mutate(version=1), 
