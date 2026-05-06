@@ -164,7 +164,11 @@ for(i in target_sets) {
       filter(between(date, ymd(paste(year(min_new_date)-1, "-01-01")), min_new_date)),
     new_obs_df)
   # This is hacky and repetitive but ok for now...
-  days_to_forecast <- seq(today(), max_env_date, by=1)
+  if(max_env_date < today()) {
+    days_to_forecast <- max_env_date
+  } else {
+    days_to_forecast <- seq(today(), max_env_date, by=1)
+  }
   y_ls <- vector("list", length(days_to_forecast))
   for(j in seq_along(days_to_forecast)) {
     forecastDays_df <- combined_obs_df |>
