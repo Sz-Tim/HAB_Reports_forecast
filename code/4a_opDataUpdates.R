@@ -123,6 +123,12 @@ get_WRF(wrf.dir=wrf.dir, nDays_buffer=0,
         dateRng=c(old_end$wrf, today()), 
         out.dir=wrf.out)
 
+wrf_NAs <- dirf(wrf.out, "wrf_NA_*.rds")
+if(length(wrf_NAs) > 0) {
+  file.remove(wrf_NAs)
+  cat("Removed NA WRF files:", paste(wrf_NAs, sep="  \n  "))
+}
+
 # use forecast when hindcast is unavailable
 latest_wrf <- dir(wrf.out, "wrf_.*_d01.rds") |> sort() |> last() |> 
   str_sub(5, 14) |> ymd()
