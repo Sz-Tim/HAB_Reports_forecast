@@ -123,7 +123,7 @@ get_WRF(wrf.dir=wrf.dir, nDays_buffer=0,
         dateRng=c(old_end$wrf, today()), 
         out.dir=wrf.out)
 
-wrf_NAs <- dirf(wrf.out, "wrf_NA_*.rds")
+wrf_NAs <- dirf(wrf.out, "wrf_NA_.*.rds")
 if(length(wrf_NAs) > 0) {
   file.remove(wrf_NAs)
   cat("Removed NA WRF files:", paste(wrf_NAs, sep="  \n  "))
